@@ -1,0 +1,38 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Model weights
+*.pth
+
+# STCN cloned folder
+STCN/
+
+# Virtual environment folders
+.venv/
+
+# Output / generated files
+output/
+
+# Local backups
+backup/
+
+# Word documents
+*.docx
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE settings
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.swp

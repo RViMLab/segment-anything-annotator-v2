@@ -1,6 +1,19 @@
 # segment-anything-annotator
 We developed a python UI based on labelme and segment-anything for pixel-level annotation. It support generating multiple masks by SAM(box/point prompt),  efficient polygon modification and category record. We will add more features (such as incorporating CLIP-based methods for category proposal and VOS methods for mask association of video datasets)
 
+
+This repository is based on [haochenheheda/segment-anything-annotator] (https://github.com/haochenheheda/segment-anything-annotator/tree/master).
+
+## New Features (Implemented Edits)
+
+- Jump-to-image: Added a `Jump` button + dialog that lists "index - filename" and lets you type to search and jump to that image. Jump shortcut: `J` (clickable or via shortcut).
+- Filename label: Added a visible filename label (`img_name`) centered above the image area and updated it in `loadImg()`.
+- UI layout tweaks: shifted `scrollArea`, `shape_dock`, progress bar, and navigation buttons to make room for the filename label.
+- Subtract polygons: added `startSubtract()` flow and `_perform_subtract()` which rasterizes source/target, subtracts masks, converts resulting contours back into polygons, and keeps all resulting contours as separate shapes. Subtract shortcut: `Shift+S`.
+- Merge polygons: added `startMerge()` flow and `_perform_merge()` which unions masks and creates polygons from all resulting contours. Merge shortcut: `m`.
+- Toolbar actions: added `Subtract` and `Merge` actions to the toolbar.
+- ESC handling: pressing `Esc` cancels active subtract/merge modes.
+
 Any feedback or suggestions are welcomed. We will continuously add features and fix bugs. 👀👀👀
 
 

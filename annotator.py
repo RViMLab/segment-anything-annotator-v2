@@ -76,6 +76,10 @@ class MainWindow(QMainWindow):
         self.sam_mask_proposal = []
         self.image_encoded_flag = False
         self.min_point_dis = 4
+        self.subtract_mode = False
+        self.subtract_shape = None
+        self.merge_mode = False
+        self.merge_shape = None
 
         self.predictor = None
 
@@ -148,6 +152,9 @@ class MainWindow(QMainWindow):
         self.button_next.clicked.connect(self.clickButtonNext)
         self.button_last = QPushButton('Last Image', self)
         self.button_last.clicked.connect(self.clickButtonLast)
+        self.button_jump = QPushButton('Jump', self)
+        self.button_jump.setShortcut('J')
+        self.button_jump.clicked.connect(self.clickButtonJump)
 
         self.img_progress_bar = QProgressBar(self)
         self.img_progress_bar.setMinimum(0)
@@ -169,29 +176,38 @@ class MainWindow(QMainWindow):
         
         self.class_on_flag = True
         self.class_on_text = QLabel("Class On", self)
+        self.img_name = QLabel("", self)
+        self.img_name.setAlignment(Qt.AlignCenter)
+        self.img_name.setStyleSheet("font-size: 10pt; color: black;")
         
 
         #naive layout
-        self.scrollArea.move(int(0.02 * global_w), int(0.08 * global_h))
+        # shifted down to make room for filename label
+        self.scrollArea.move(int(0.02 * global_w), int(0.12 * global_h))
         self.scrollArea.resize(int(0.75 * global_w), int(0.7 * global_h))
-        self.shape_dock.move(int(0.79 * global_w), int(0.08 * global_h))
+        self.shape_dock.move(int(0.79 * global_w), int(0.12 * global_h))
         self.shape_dock.resize(int(0.2 * global_w), int(0.7 * global_h))
-        self.button_next.move(int(0.18 * global_w), int(0.85 * global_h))
+        self.button_next.move(int(0.18 * global_w), int(0.89 * global_h))
         self.button_next.resize(int(0.1 * global_w),int(0.04 * global_h))
-        self.button_last.move(int(0.01 * global_w), int(0.85 * global_h))
+        self.button_last.move(int(0.01 * global_w), int(0.89 * global_h))
         self.button_last.resize(int(0.1 * global_w),int(0.04 * global_h))
-        self.class_on_text.move(int(0.01 * global_w), int(0.9 * global_h))
-        self.img_progress_bar.move(int(0.01 * global_w), int(0.8 * global_h))
+        self.button_jump.move(int(0.12 * global_w), int(0.89 * global_h))
+        self.button_jump.resize(int(0.05 * global_w),int(0.04 * global_h))
+        self.class_on_text.move(int(0.01 * global_w), int(0.94 * global_h))
+        # place filename label centered above the scroll area
+        self.img_name.move(int(0.02 * global_w), int(0.09 * global_h))
+        self.img_name.resize(int(0.75 * global_w), int(0.03 * global_h))
+        self.img_progress_bar.move(int(0.01 * global_w), int(0.84 * global_h))
         self.img_progress_bar.resize(int(0.3 * global_w),int(0.04 * global_h))
         
         self.button_proposal1.resize(int(0.17 * global_w),int(0.14 * global_h))
-        self.button_proposal1.move(int(0.33 * global_w), int(0.8 * global_h))
+        self.button_proposal1.move(int(0.33 * global_w), int(0.84 * global_h))
         self.button_proposal2.resize(int(0.17 * global_w),int(0.14 * global_h))
-        self.button_proposal2.move(int(0.50 * global_w), int(0.8 * global_h))
+        self.button_proposal2.move(int(0.50 * global_w), int(0.84 * global_h))
         self.button_proposal3.resize(int(0.17 * global_w),int(0.14 * global_h))
-        self.button_proposal3.move(int(0.67 * global_w), int(0.8 * global_h))
+        self.button_proposal3.move(int(0.67 * global_w), int(0.84 * global_h))
         self.button_proposal4.resize(int(0.17 * global_w),int(0.14 * global_h))
-        self.button_proposal4.move(int(0.84 * global_w), int(0.8 * global_h))
+        self.button_proposal4.move(int(0.84 * global_w), int(0.84 * global_h))
         
         
         
@@ -295,7 +311,7 @@ class MainWindow(QMainWindow):
         editMode = action(
             self.tr("Edit Polygons"),
             self.setEditMode,
-            'None',
+            'e',
             "edit",
             self.tr("Move and edit the selected polygons"),
             enabled=False,
@@ -370,11 +386,27 @@ class MainWindow(QMainWindow):
         reduce_point = action(
             self.tr("Reduce Points"),
             self.reducePoint,
-            'None',
+            'Shift+R',
             "copy",
             self.tr("Reduce Points"),
             enabled=True,
         )            
+        subtract = action(
+            self.tr("Subtract Polygons"),
+            lambda: self.startSubtract(),
+            'Shift+S',
+            "edit",
+            self.tr("Subtract selected polygon from another"),
+            enabled=True,
+        )
+        merge = action(
+            self.tr("Merge Polygons"),
+            lambda: self.startMerge(),
+            'm',
+            "edit",
+            self.tr("Merge two selected polygons"),
+            enabled=True,
+        )
         edit = action(
             self.tr("&Edit Label"),
             self.editLabel,
@@ -404,6 +436,8 @@ class MainWindow(QMainWindow):
             edit=edit,
             duplicate=duplicate,
             reduce_point=reduce_point,
+            subtract=subtract,
+            merge=merge,
             save=save,
             onShapesPresent=(saveAs, hideAll, showAll),
             menu=(
@@ -444,6 +478,8 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(edit)
         self.toolbar.addAction(duplicate)
         self.toolbar.addAction(reduce_point)
+        self.toolbar.addAction(subtract)
+        self.toolbar.addAction(merge)
         self.toolbar.addAction(save)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
 
@@ -466,6 +502,7 @@ class MainWindow(QMainWindow):
 
         self.zoomWidget.valueChanged.connect(self.paintCanvas)
         self.canvas.actions = self.actions
+        # preview state (no interactive reduce slider)
 
 
     def saveFileAs(self, _value=False):
@@ -613,6 +650,40 @@ class MainWindow(QMainWindow):
             self.loadImg()
 
 
+    def clickButtonJump(self):
+        if self.actions.save.isEnabled():
+            reply = QMessageBox.question(
+                self,
+                self.tr("Unsaved changes"),
+                self.tr("You have unsaved changes. Save before jumping?"),
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+            )
+            if reply == QMessageBox.Cancel:
+                return
+            if reply == QMessageBox.Yes:
+                self.saveFile()
+        if self.img_len == 0:
+            return
+        items = [f"{i} - {os.path.basename(p)}" for i, p in enumerate(self.img_list)]
+        current_text = items[self.current_img_index] if 0 <= self.current_img_index < len(items) else items[0]
+        item, ok = QtWidgets.QInputDialog.getItem(
+            self,
+            self.tr("Jump to image"),
+            self.tr("Select image (type to search):"),
+            items,
+            current=items.index(current_text),
+            editable=True,
+        )
+        if ok and item:
+            try:
+                idx = int(item.split(' - ', 1)[0])
+            except Exception:
+                return
+            self.current_img_index = int(idx)
+            self.current_img = self.img_list[self.current_img_index]
+            self.loadImg()
+
+
     def choose_proposal1(self):
         if len(self.sam_mask_proposal) > 0:
             self.sam_mask = self.sam_mask_proposal[0]
@@ -646,6 +717,11 @@ class MainWindow(QMainWindow):
 
         img_name = os.path.basename(self.current_img)[:-4]
         self.current_output_filename = osp.join(self.current_output_dir, img_name + '.json')
+        # show filename (including extension) centered above the image area
+        try:
+            self.img_name.setText(os.path.basename(self.current_img))
+        except Exception:
+            self.img_name.setText("")
         self.labelList.clear()
         if os.path.isfile(self.current_output_filename):
             self.loadAnno(self.current_output_filename)
@@ -716,6 +792,49 @@ class MainWindow(QMainWindow):
         self.actions.loadSAM.setEnabled(False)
         #self.actions.autoSeg.setEnabled(True)
         self.actions.promptSeg.setEnabled(True)
+
+    def startSubtract(self):
+        # Begin subtract flow: require a currently selected polygon as the source
+        item = self.currentItem()
+        if item is None:
+            QMessageBox.information(self, self.tr("Subtract"), self.tr("Select a polygon to subtract (source) first."))
+            return
+        shape = item.shape()
+        if shape is None or shape.shape_type != 'polygon':
+            QMessageBox.information(self, self.tr("Subtract"), self.tr("Source must be a polygon."))
+            return
+        # ask user to confirm or cancel; Esc will cancel
+        reply = QMessageBox.question(
+            self,
+            self.tr("Subtract"),
+            self.tr("Now select the polygon to cut from (target). Press Cancel or Esc to abort."),
+            QMessageBox.Ok | QMessageBox.Cancel,
+        )
+        if reply == QMessageBox.Cancel:
+            return
+        self.subtract_shape = shape
+        self.subtract_mode = True
+
+    def startMerge(self):
+        item = self.currentItem()
+        if item is None:
+            QMessageBox.information(self, self.tr("Merge"), self.tr("Select the first polygon to merge (source) first."))
+            return
+        shape = item.shape()
+        if shape is None or shape.shape_type != 'polygon':
+            QMessageBox.information(self, self.tr("Merge"), self.tr("Source must be a polygon."))
+            return
+        reply = QMessageBox.question(
+            self,
+            self.tr("Merge"),
+            self.tr("Now select the polygon to merge with (target). Press Cancel or Esc to abort."),
+            QMessageBox.Ok | QMessageBox.Cancel,
+        )
+        if reply == QMessageBox.Cancel:
+            return
+        self.merge_shape = shape
+        self.merge_mode = True
+        QMessageBox.information(self, self.tr("Merge"), self.tr("Select the target polygon to complete the merge."))
     
     def clickAutoSeg(self):
         pass
@@ -1047,6 +1166,48 @@ class MainWindow(QMainWindow):
         self.actions.delete.setEnabled(n_selected)
         self.actions.duplicate.setEnabled(n_selected)
         self.actions.edit.setEnabled(n_selected == 1)
+        # If we are in subtract mode and user selected a target, perform subtraction
+        if getattr(self, 'subtract_mode', False):
+            # require exactly one selected shape as target
+            if n_selected == 1 and self.subtract_shape is not None:
+                target = selected_shapes[0]
+                # don't subtract from itself
+                if target is not self.subtract_shape:
+                    try:
+                        self._perform_subtract(self.subtract_shape, target)
+                    except Exception as e:
+                        QMessageBox.warning(self, self.tr("Subtract"), self.tr(f"Subtract failed: {e}"))
+                else:
+                    QMessageBox.information(self, self.tr("Subtract"), self.tr("Cannot subtract a polygon from itself."))
+            # reset mode
+            self.subtract_mode = False
+            self.subtract_shape = None
+        # If we are in merge mode and user selected a target, perform merge
+        if getattr(self, 'merge_mode', False):
+            if n_selected == 1 and self.merge_shape is not None:
+                target = selected_shapes[0]
+                if target is not self.merge_shape:
+                    try:
+                        self._perform_merge(self.merge_shape, target)
+                    except Exception as e:
+                        QMessageBox.warning(self, self.tr("Merge"), self.tr(f"Merge failed: {e}"))
+                else:
+                    QMessageBox.information(self, self.tr("Merge"), self.tr("Cannot merge a polygon with itself."))
+            self.merge_mode = False
+            self.merge_shape = None
+        # If we are in merge mode and user selected a target, perform merge
+        if getattr(self, 'merge_mode', False):
+            if n_selected == 1 and self.merge_shape is not None:
+                target = selected_shapes[0]
+                if target is not self.merge_shape:
+                    try:
+                        self._perform_merge(self.merge_shape, target)
+                    except Exception as e:
+                        QMessageBox.warning(self, self.tr("Merge"), self.tr(f"Merge failed: {e}"))
+                else:
+                    QMessageBox.information(self, self.tr("Merge"), self.tr("Cannot merge a polygon with itself."))
+            self.merge_mode = False
+            self.merge_shape = None
 
     def toggleDrawingSensitive(self, drawing=True):
         """Toggle drawing sensitive.
@@ -1093,9 +1254,28 @@ class MainWindow(QMainWindow):
                 self.actions.createMode.setEnabled(True)
                 self.actions.createPointMode.setEnabled(True)
                 self.actions.createRectangleMode.setEnabled(False)
-            else:
-                raise ValueError("Unsupported createMode: %s" % createMode)
-        self.actions.editMode.setEnabled(not edit)
+
+    def keyPressEvent(self, ev):
+        # Allow cancelling subtract/merge modes with Esc
+        try:
+            key = ev.key()
+        except Exception:
+            return
+        if key == Qt.Key_Escape:
+            cancelled = False
+            if getattr(self, 'subtract_mode', False):
+                self.subtract_mode = False
+                self.subtract_shape = None
+                cancelled = True
+            if getattr(self, 'merge_mode', False):
+                self.merge_mode = False
+                self.merge_shape = None
+                cancelled = True
+            if cancelled:
+                QMessageBox.information(self, self.tr("Cancelled"), self.tr("Operation cancelled."))
+            return
+        # delegate other key events to base
+        return super(MainWindow, self).keyPressEvent(ev)
 
     def validateLabel(self, label):
         return True
@@ -1130,6 +1310,107 @@ class MainWindow(QMainWindow):
         contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         contours = np.array(contours[0])
         return contours
+
+    def _perform_subtract(self, source_shape, target_shape):
+        # Convert Shape points to polygon arrays
+        if source_shape is None or target_shape is None:
+            return
+        if source_shape.shape_type != 'polygon' or target_shape.shape_type != 'polygon':
+            raise ValueError('Both shapes must be polygons')
+        # build numpy polygons
+        src_pts = np.array([[p.x(), p.y()] for p in source_shape.points])
+        tgt_pts = np.array([[p.x(), p.y()] for p in target_shape.points])
+        h, w = int(self.raw_h), int(self.raw_w)
+        src_mask = self.polygon2mask(src_pts, (h, w))
+        tgt_mask = self.polygon2mask(tgt_pts, (h, w))
+        # (undo snapshot handled by canvas.loadShapes after modification)
+        # subtract source from target
+        new_mask = np.logical_and(tgt_mask > 0, np.logical_not(src_mask > 0)).astype(np.uint8)
+        # if new_mask empty, remove target shape
+        if new_mask.sum() == 0:
+            # remove target from canvas and label list
+            try:
+                self.canvas.deleteShape(target_shape)
+            except Exception:
+                pass
+            self.remLabels([target_shape])
+            self.canvas.loadShapes([item.shape() for item in self.labelList])
+            self.setDirty()
+            return
+        # convert mask back to polygons (keep all contours)
+        contours = cv2.findContours(new_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
+        if not contours:
+            return
+        # remove original target shape from canvas and label list
+        try:
+            self.canvas.deleteShape(target_shape)
+        except Exception:
+            pass
+        self.remLabels([target_shape])
+        # create new shapes from contours
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < 1.0:
+                continue
+            pts = np.squeeze(cnt)
+            if pts.ndim != 2:
+                continue
+            shape_obj = Shape(label=target_shape.label, shape_type='polygon', flags=target_shape.flags, group_id=target_shape.group_id)
+            qt_points = [QtCore.QPointF(float(x), float(y)) for x, y in pts]
+            shape_obj.points = qt_points
+            shape_obj.close()
+            shape_obj.fill = True
+            self.addLabel(shape_obj)
+        # refresh canvas and labels (this will also store shapes)
+        self.canvas.loadShapes([item.shape() for item in self.labelList])
+        self.setDirty()
+
+    def _perform_merge(self, source_shape, target_shape):
+        if source_shape is None or target_shape is None:
+            return
+        if source_shape.shape_type != 'polygon' or target_shape.shape_type != 'polygon':
+            raise ValueError('Both shapes must be polygons')
+        src_pts = np.array([[p.x(), p.y()] for p in source_shape.points])
+        tgt_pts = np.array([[p.x(), p.y()] for p in target_shape.points])
+        h, w = int(self.raw_h), int(self.raw_w)
+        src_mask = self.polygon2mask(src_pts, (h, w))
+        tgt_mask = self.polygon2mask(tgt_pts, (h, w))
+        # (undo snapshot handled by canvas.loadShapes after modification)
+        # union
+        new_mask = np.logical_or(src_mask > 0, tgt_mask > 0).astype(np.uint8)
+        if new_mask.sum() == 0:
+            return
+        contours = cv2.findContours(new_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
+        if not contours:
+            return
+        # remove original shapes from canvas first
+        try:
+            self.canvas.deleteShape(source_shape)
+        except Exception:
+            pass
+        try:
+            self.canvas.deleteShape(target_shape)
+        except Exception:
+            pass
+        # remove from label list
+        self.remLabels([source_shape, target_shape])
+        created = []
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < 1.0:
+                continue
+            pts = np.squeeze(cnt)
+            if pts.ndim != 2:
+                continue
+            shape_obj = Shape(label=source_shape.label, shape_type='polygon', flags=source_shape.flags, group_id=source_shape.group_id)
+            qt_points = [QtCore.QPointF(float(x), float(y)) for x, y in pts]
+            shape_obj.points = qt_points
+            shape_obj.close()
+            shape_obj.fill = True
+            created.append(shape_obj)
+            self.addLabel(shape_obj)
+        self.canvas.loadShapes([item.shape() for item in self.labelList])
+        self.setDirty()
 
     def editLabel(self, item=None):
         if item and not isinstance(item, LabelListWidgetItem):
@@ -1288,6 +1569,7 @@ class MainWindow(QMainWindow):
         self.setDirty()
 
     def reducePoint(self):
+        # undo snapshot will be created by canvas.loadShapes after modifications
         def format_shape(s):
             data = s.other_data.copy()
             data.update(
