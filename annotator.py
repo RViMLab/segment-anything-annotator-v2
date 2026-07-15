@@ -1857,7 +1857,8 @@ class MainWindow(QMainWindow):
         adj_qimg = QImage(adjusted.data, w, h, w * 3, QImage.Format_RGB888)
         adj_pixmap = QPixmap.fromImage(adj_qimg)
 
-        self.canvas.loadPixmap(adj_pixmap)
+        # clear_shapes=False → swap the background image only, keep all polygons
+        self.canvas.loadPixmap(adj_pixmap, clear_shapes=False)
         self.canvas.update()
 
     def resetBrightnessContrast(self):
