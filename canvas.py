@@ -56,7 +56,7 @@ class Canvas(QtWidgets.QWidget):
             {
                 "polygon": False,
                 "rectangle": True,
-                "circle": False,
+                "circle": True,
                 "line": False,
                 "point": False,
                 "linestrip": False,
@@ -72,6 +72,7 @@ class Canvas(QtWidgets.QWidget):
         self.currentPos = None
         self.currentNeg = None
         self.currentBox = None
+        self.currentCircle = None
         self.selectedShapes = []  # save the selected shapes here
         self.selectedShapesCopy = []
         # self.line represents:
@@ -205,7 +206,11 @@ class Canvas(QtWidgets.QWidget):
         self.hShape = self.hVertex = self.hEdge = None
 
     def selectedVertex(self):
-        return self.hVertex is not None
+        return (
+            self.hVertex is not None
+            and self.hShape is not None
+            and 0 <= self.hVertex < len(self.hShape.points)
+        )
 
     def selectedEdge(self):
         return self.hEdge is not None
@@ -229,7 +234,14 @@ class Canvas(QtWidgets.QWidget):
 
             self.overrideCursor(CURSOR_DRAW)
             if not self.current:
-                self.repaint()  # draw crosshair
+                if self.currentBox and len(self.currentBox.points) == 1:
+                    self.line.points = [self.currentBox.points[0], pos]
+                    self.line.close()
+                elif self.currentCircle and len(self.currentCircle.points) == 1:
+                    self.line.points = [self.currentCircle.points[0], pos]
+                    self.line.shape_type = "circle"
+                    self.line.close()
+                self.repaint()  # draw crosshair / preview
                 return
 
             if self.outOfPixmap(pos):
@@ -334,7 +346,7 @@ class Canvas(QtWidgets.QWidget):
                         index, shape = self.hVertex, self.hShape
                         if index != self.modified_memory[0] and shape == self.modified_memory[1]:
                             self.start_modify_flag = False
-                    if self.start_modify_flag == True:
+                    if self.start_modify_flag == True and len(self.current) > 0:
                         d2 = (self.current[-1].x() - pos.x()) ** 2 + (self.current[-1].y() - pos.y()) ** 2
                         if d2 >= 80:
                             self.current.addPoint(pos)
@@ -420,7 +432,7 @@ class Canvas(QtWidgets.QWidget):
     def removeSelectedPoint(self):
         shape = self.prevhShape
         index = self.prevhVertex
-        if shape is None or index is None:
+        if shape is None or index is None or not (0 <= index < len(shape.points)):
             return
         shape.removePoint(index)
         shape.highlightClear()
@@ -459,6 +471,8 @@ class Canvas(QtWidgets.QWidget):
                         pass
                     elif self.createMode == "rectangle":
                         pass
+                    elif self.createMode == "circle":
+                        pass
                     else: 
                         self.current = Shape(shape_type=self.createMode)
                         self.current.addPoint(pos)
@@ -491,6 +505,30 @@ class Canvas(QtWidgets.QWidget):
                     if self.createMode == "rectangle":
                         self.currentBox = Shape(shape_type=self.createMode)
                         self.currentBox.addPoint(pos)
+                        self.line.points = [pos, pos]
+                        self.setHiding()
+                        self.drawingPolygon.emit(True)
+                        self.update()
+
+                if self.currentCircle:
+                    if self.createMode == "circle":
+                        if len(self.currentCircle.points) == 1:
+                            self.currentCircle.addPoint(pos)
+                            self.currentCircle.close()
+                            self.app.clickManualSegCircle()
+                            self.setHiding()
+                            self.update()
+                        else:
+                            self.currentCircle = Shape(shape_type=self.createMode)
+                            self.currentCircle.addPoint(pos)
+                            self.line.points = [pos, pos]
+                            self.setHiding()
+                            self.drawingPolygon.emit(True)
+                            self.update()
+                elif not self.outOfPixmap(pos):
+                    if self.createMode == "circle":
+                        self.currentCircle = Shape(shape_type=self.createMode)
+                        self.currentCircle.addPoint(pos)
                         self.line.points = [pos, pos]
                         self.setHiding()
                         self.drawingPolygon.emit(True)
@@ -554,7 +592,9 @@ class Canvas(QtWidgets.QWidget):
                     # Create new shape.
                     if self.createMode == "point":
                         pass
-                    if self.createMode == "rectangle":
+                    elif self.createMode == "rectangle":
+                        pass
+                    elif self.createMode == "circle":
                         pass
                     else:
                         self.current = Shape(shape_type=self.createMode)
@@ -588,6 +628,30 @@ class Canvas(QtWidgets.QWidget):
                     if self.createMode == "rectangle":
                         self.currentBox = Shape(shape_type=self.createMode)
                         self.currentBox.addPoint(pos)
+                        self.line.points = [pos, pos]
+                        self.setHiding()
+                        self.drawingPolygon.emit(True)
+                        self.update()
+
+                if self.currentCircle:
+                    if self.createMode == "circle":
+                        if len(self.currentCircle.points) == 1:
+                            self.currentCircle.addPoint(pos)
+                            self.currentCircle.close()
+                            self.app.clickManualSegCircle()
+                            self.setHiding()
+                            self.update()
+                        else:
+                            self.currentCircle = Shape(shape_type=self.createMode)
+                            self.currentCircle.addPoint(pos)
+                            self.line.points = [pos, pos]
+                            self.setHiding()
+                            self.drawingPolygon.emit(True)
+                            self.update()
+                elif not self.outOfPixmap(pos):
+                    if self.createMode == "circle":
+                        self.currentCircle = Shape(shape_type=self.createMode)
+                        self.currentCircle.addPoint(pos)
                         self.line.points = [pos, pos]
                         self.setHiding()
                         self.drawingPolygon.emit(True)
@@ -801,6 +865,8 @@ class Canvas(QtWidgets.QWidget):
 
     def boundedMoveVertex(self, pos):
         index, shape = self.hVertex, self.hShape
+        if shape is None or index is None or not (0 <= index < len(shape.points)):
+            return
         point = shape[index]
         if self.outOfPixmap(pos):
             pos = self.intersectionPoint(point, pos)
@@ -899,7 +965,7 @@ class Canvas(QtWidgets.QWidget):
             and self.prevMovePoint
             and not self.outOfPixmap(self.prevMovePoint)
         ):
-            p.setPen(QtGui.QColor(0, 0, 0))
+            p.setPen(QtGui.QColor(255, 255, 255))
             p.drawLine(
                 0,
                 int(self.prevMovePoint.y()),
@@ -928,6 +994,10 @@ class Canvas(QtWidgets.QWidget):
             self.currentNeg.paint(p,flag=0)
         if self.currentBox:
             self.currentBox.paint(p)
+        if self.currentCircle:
+            self.currentCircle.paint(p)
+        if self.drawing() and self.line.points and self.createMode in ["rectangle", "circle"]:
+            self.line.paint(p)
         if self.selectedShapesCopy:
             for s in self.selectedShapesCopy:
                 s.paint(p)
@@ -989,6 +1059,19 @@ class Canvas(QtWidgets.QWidget):
         self.currentPos = None
         self.currentNeg = None
         self.currentBox = None
+        self.setHiding(False)
+        self.newShape.emit()
+        self.update()
+
+    def finaliseCircle(self):
+        assert self.currentCircle
+        self.currentCircle.close()
+        self.shapes.append(self.currentCircle)
+        self.storeShapes()
+        self.current = None
+        self.currentPos = None
+        self.currentNeg = None
+        self.currentCircle = None
         self.setHiding(False)
         self.newShape.emit()
         self.update()
@@ -1202,9 +1285,19 @@ class Canvas(QtWidgets.QWidget):
     def restoreCursor(self):
         QtWidgets.QApplication.restoreOverrideCursor()
 
+    def cancelDrawing(self):
+        self.current = None
+        self.currentPos = None
+        self.currentNeg = None
+        self.currentBox = None
+        self.currentCircle = None
+        self.drawingPolygon.emit(False)
+        self.update()
+
     def resetState(self):
         self.restoreCursor()
         self.pixmap = None
+        self.cancelDrawing()
         self.shapesBackups = []
         self.update()
 

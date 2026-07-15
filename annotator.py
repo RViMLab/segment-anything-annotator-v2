@@ -179,12 +179,47 @@ class MainWindow(QMainWindow):
         self.img_name = QLabel("", self)
         self.img_name.setAlignment(Qt.AlignCenter)
         self.img_name.setStyleSheet("font-size: 10pt; color: black;")
+
+        # ── Brightness / Contrast sliders ────────────────────────────────────
+        from PyQt5.QtWidgets import QSlider
+        from PyQt5.QtCore import QTimer
+
+        self._raw_pixmap = None  # stores the unmodified image pixmap
+
+        # Brightness slider  (-100 … +100, step 1, default 0)
+        self.brightness_label = QLabel("Bright\n0", self)
+        self.brightness_label.setStyleSheet("font-size: 8pt; qproperty-alignment: 'AlignHCenter';")
+        self.brightness_slider = QSlider(Qt.Vertical, self)
+        self.brightness_slider.setRange(-100, 100)
+        self.brightness_slider.setValue(0)
+        self.brightness_slider.setTickPosition(QSlider.TicksRight)
+        self.brightness_slider.setTickInterval(25)
+        self.brightness_slider.valueChanged.connect(self._on_bc_slider_changed)
+
+        # Contrast slider  (10 … 300 → maps to 0.1 … 3.0×, default 100 = 1.0×)
+        self.contrast_label = QLabel("Contrast\n1.0×", self)
+        self.contrast_label.setStyleSheet("font-size: 8pt; qproperty-alignment: 'AlignHCenter';")
+        self.contrast_slider = QSlider(Qt.Vertical, self)
+        self.contrast_slider.setRange(10, 300)
+        self.contrast_slider.setValue(100)
+        self.contrast_slider.setTickPosition(QSlider.TicksRight)
+        self.contrast_slider.setTickInterval(50)
+        self.contrast_slider.valueChanged.connect(self._on_bc_slider_changed)
+
+        # Reset button
+        self.button_bc_reset = QPushButton("Reset B/C", self)
+        self.button_bc_reset.clicked.connect(self.resetBrightnessContrast)
+
+        # Debounce timer – fires 80 ms after the last slider move
+        self._bc_timer = QTimer(self)
+        self._bc_timer.setSingleShot(True)
+        self._bc_timer.timeout.connect(self.applyBrightnessContrast)
         
 
         #naive layout
         # shifted down to make room for filename label
         self.scrollArea.move(int(0.02 * global_w), int(0.12 * global_h))
-        self.scrollArea.resize(int(0.75 * global_w), int(0.7 * global_h))
+        self.scrollArea.resize(int(0.69 * global_w), int(0.7 * global_h))   # narrowed to make room for B/C panel
         self.shape_dock.move(int(0.79 * global_w), int(0.12 * global_h))
         self.shape_dock.resize(int(0.2 * global_w), int(0.7 * global_h))
         self.button_next.move(int(0.18 * global_w), int(0.89 * global_h))
@@ -196,7 +231,7 @@ class MainWindow(QMainWindow):
         self.class_on_text.move(int(0.01 * global_w), int(0.94 * global_h))
         # place filename label centered above the scroll area
         self.img_name.move(int(0.02 * global_w), int(0.09 * global_h))
-        self.img_name.resize(int(0.75 * global_w), int(0.03 * global_h))
+        self.img_name.resize(int(0.69 * global_w), int(0.03 * global_h))
         self.img_progress_bar.move(int(0.01 * global_w), int(0.84 * global_h))
         self.img_progress_bar.resize(int(0.3 * global_w),int(0.04 * global_h))
         
@@ -208,6 +243,39 @@ class MainWindow(QMainWindow):
         self.button_proposal3.move(int(0.67 * global_w), int(0.84 * global_h))
         self.button_proposal4.resize(int(0.17 * global_w),int(0.14 * global_h))
         self.button_proposal4.move(int(0.84 * global_w), int(0.84 * global_h))
+
+        # ── Brightness / Contrast – vertical panel between image view and dock ──
+        # The gap spans from x=0.72*w to x=0.78*w (6% of window width).
+        # Each slider column is ~2.5% wide; the two columns are centred in the gap
+        # with a small spacing between them.
+        _vc_col_w   = int(0.028 * global_w)   # width of each slider column
+        _vc_sld_h   = int(0.52 * global_h)    # tall slider
+        _vc_lbl_h   = int(0.04 * global_h)    # label height above each slider
+        _vc_btn_h   = int(0.03 * global_h)    # reset button height
+        _vc_top     = int(0.13 * global_h)    # top of the label row
+        _vc_gap     = int(0.015 * global_w)   # horizontal gap between the two columns
+
+        # Centre the two columns inside the gap
+        _vc_x1 = int(0.722 * global_w)        # brightness column left edge
+        _vc_x2 = _vc_x1 + _vc_col_w + _vc_gap  # contrast column left edge
+
+        # Brightness column
+        self.brightness_label.move(_vc_x1, _vc_top)
+        self.brightness_label.resize(_vc_col_w, _vc_lbl_h)
+        self.brightness_slider.move(_vc_x1, _vc_top + _vc_lbl_h + 2)
+        self.brightness_slider.resize(_vc_col_w, _vc_sld_h)
+
+        # Contrast column
+        self.contrast_label.move(_vc_x2, _vc_top)
+        self.contrast_label.resize(_vc_col_w, _vc_lbl_h)
+        self.contrast_slider.move(_vc_x2, _vc_top + _vc_lbl_h + 2)
+        self.contrast_slider.resize(_vc_col_w, _vc_sld_h)
+
+        # Reset button – spans both columns, sits below the sliders
+        _vc_reset_y = _vc_top + _vc_lbl_h + 2 + _vc_sld_h + 6
+        _vc_reset_w = _vc_x2 + _vc_col_w - _vc_x1
+        self.button_bc_reset.move(_vc_x1, _vc_reset_y)
+        self.button_bc_reset.resize(_vc_reset_w, _vc_btn_h)
         
         
         
@@ -288,6 +356,14 @@ class MainWindow(QMainWindow):
             'None',
             "objects",
             self.tr("Box Prompt"),
+            enabled=True,
+        )
+        createCircleMode = action(
+            self.tr("Circle Prompt"),
+            lambda: self.toggleDrawMode(False, createMode="circle"),
+            'None',
+            "objects",
+            self.tr("Circle Prompt"),
             enabled=True,
         )
         cleanPrompt = action(
@@ -429,6 +505,7 @@ class MainWindow(QMainWindow):
             createMode=createMode,
             createPointMode=createPointMode,
             createRectangleMode=createRectangleMode,
+            createCircleMode=createCircleMode,
             editMode=editMode,
             undoLastPoint=undoLastPoint,
             undo=undo,
@@ -471,6 +548,7 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(createMode)
         self.toolbar.addAction(createPointMode)
         self.toolbar.addAction(createRectangleMode)
+        self.toolbar.addAction(createCircleMode)
         self.toolbar.addAction(editMode)
         self.toolbar.addAction(undoLastPoint)
         self.toolbar.addAction(undo)
@@ -677,6 +755,13 @@ class MainWindow(QMainWindow):
         if ok and item:
             try:
                 idx = int(item.split(' - ', 1)[0])
+                if not (0 <= idx < len(self.img_list)):
+                    QMessageBox.warning(
+                        self,
+                        self.tr("Invalid index"),
+                        self.tr("Image index must be between 0 and {max_val}.").format(max_val=len(self.img_list) - 1)
+                    )
+                    return
             except Exception:
                 return
             self.current_img_index = int(idx)
@@ -711,7 +796,8 @@ class MainWindow(QMainWindow):
     def loadImg(self):
         self.raw_h, self.raw_w = cv2.imread(self.current_img).shape[:2]
         pixmap = QPixmap(self.current_img)
-        #pixmap = pixmap.scaled(int(0.75 * global_w), int(0.7 * global_h))
+        # Keep an unmodified copy for brightness/contrast adjustments
+        self._raw_pixmap = pixmap
         self.canvas.loadPixmap(pixmap)
         self.img_progress_bar.setValue(self.current_img_index)
 
@@ -727,6 +813,16 @@ class MainWindow(QMainWindow):
             self.loadAnno(self.current_output_filename)
         self.image_encoded_flag = False
         self.current_img_data = LabelFile.load_image_file(self.current_img)
+
+        # Reset brightness/contrast sliders to neutral on every new image
+        self.brightness_slider.blockSignals(True)
+        self.contrast_slider.blockSignals(True)
+        self.brightness_slider.setValue(0)
+        self.contrast_slider.setValue(100)
+        self.brightness_slider.blockSignals(False)
+        self.contrast_slider.blockSignals(False)
+        self.brightness_label.setText("Bright\n0")
+        self.contrast_label.setText("Contrast\n1.0\u00d7")
 
 
     def clickFileChoose(self):
@@ -786,7 +882,7 @@ class MainWindow(QMainWindow):
     def clickLoadSAM(self):
         download_model(self.model_type)
         self.sam = sam_model_registry[self.model_type](checkpoint='{}.pth'.format(self.model_type))
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
         self.sam.to(device=self.device)
         self.predictor = SamPredictor(self.sam)
         self.actions.loadSAM.setEnabled(False)
@@ -943,6 +1039,60 @@ class MainWindow(QMainWindow):
             self.sam_mask_proposal.append(tmp_sam_mask)
 
 
+    def clickManualSegCircle(self):
+        Circle = self.canvas.currentCircle
+        if self.predictor is None or self.current_img == '' or Circle == None or len(Circle.points) != 2:
+            return
+        img = cv2.imread(self.current_img)[:,:,::-1]
+        rh, rw = img.shape[:2]
+        
+        c = Circle.points[0]
+        r = Circle.points[0] - Circle.points[1]
+        d = math.sqrt(math.pow(r.x(), 2) + math.pow(r.y(), 2))
+        input_box = np.array([c.x() - d, c.y() - d, c.x() + d, c.y() + d])
+        
+        img, input_box, _ = self.transform_input(img, box=input_box)
+        if self.image_encoded_flag == False:
+            self.predictor.set_image(img)
+            self.image_encoded_flag = True
+        masks, iou_prediction, _ = self.predictor.predict(
+            point_coords=None,
+            point_labels=None,
+            box=input_box[None, :],
+            multimask_output=True,
+        )
+        masks = self.transform_output(masks.astype(np.uint8), (rh,rw))
+
+        target_idx = np.argmax(iou_prediction)
+        self.show_proposals(masks, 0)
+        self.sam_mask_proposal = []
+        for msk_idx in range(masks.shape[0]):
+            mask = masks[msk_idx].astype(np.uint8)
+
+            points_list = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
+            shape_type = 'polygon'
+            tmp_sam_mask = []
+            for points in points_list:
+                area = cv2.contourArea(points)
+                if area < 100 and len(points_list) > 1:
+                    continue
+                pointsx = points[:,0,0]
+                pointsy = points[:,0,1]
+
+                shape = Shape(
+                    label='Object',
+                    shape_type=shape_type,
+                    group_id=self.getMaxId() + 1,
+                )
+                for point_index in range(pointsx.shape[0]):
+                    shape.addPoint(QtCore.QPointF(pointsx[point_index], pointsy[point_index]))
+                shape.close()
+                tmp_sam_mask.append(shape)
+            if msk_idx == target_idx:
+                self.sam_mask = tmp_sam_mask
+            self.sam_mask_proposal.append(tmp_sam_mask)
+
+
     def clickManualSegBox(self):
         ClickPos = self.canvas.currentPos
         ClickNeg = self.canvas.currentNeg
@@ -1034,9 +1184,7 @@ class MainWindow(QMainWindow):
                 sam_mask.label = label
                 sam_mask.group_id = group_id
                 self.addLabel(sam_mask)
-        self.canvas.currentBox = None
-        self.canvas.currentPos = None
-        self.canvas.currentNeg = None
+        self.canvas.cancelDrawing()
         self.sam_mask = []
         self.sam_mask_proposal = []
         self.show_proposals()
@@ -1047,10 +1195,7 @@ class MainWindow(QMainWindow):
 
 
     def cleanPrompt(self):
-        self.canvas.currentBox = None
-        self.canvas.currentPos = None
-        self.canvas.currentNeg = None
-        self.canvas.current = None
+        self.canvas.cancelDrawing()
         self.sam_mask = []
         self.sam_mask_proposal = []
         self.show_proposals()
@@ -1233,27 +1378,37 @@ class MainWindow(QMainWindow):
         self.toggleDrawMode(True)
 
     def toggleDrawMode(self, edit=True, createMode="polygon"):
+        self.canvas.cancelDrawing()
         self.canvas.setEditing(edit)
         self.canvas.createMode = createMode
         if edit:
             self.actions.createMode.setEnabled(True)
             self.actions.createPointMode.setEnabled(True)
             self.actions.createRectangleMode.setEnabled(True)
+            self.actions.createCircleMode.setEnabled(True)
 
         else:
             if createMode == "polygon":
                 self.actions.createPointMode.setEnabled(True)
                 self.actions.createMode.setEnabled(False)
                 self.actions.createRectangleMode.setEnabled(True)
+                self.actions.createCircleMode.setEnabled(True)
 
             elif createMode == "point":
                 self.actions.createMode.setEnabled(True)
                 self.actions.createPointMode.setEnabled(False)
                 self.actions.createRectangleMode.setEnabled(True)
+                self.actions.createCircleMode.setEnabled(True)
             elif createMode == "rectangle":
                 self.actions.createMode.setEnabled(True)
                 self.actions.createPointMode.setEnabled(True)
                 self.actions.createRectangleMode.setEnabled(False)
+                self.actions.createCircleMode.setEnabled(True)
+            elif createMode == "circle":
+                self.actions.createMode.setEnabled(True)
+                self.actions.createPointMode.setEnabled(True)
+                self.actions.createRectangleMode.setEnabled(True)
+                self.actions.createCircleMode.setEnabled(False)
 
     def keyPressEvent(self, ev):
         # Allow cancelling subtract/merge modes with Esc
@@ -1664,6 +1819,52 @@ class MainWindow(QMainWindow):
         self.canvas.scale = 0.01 * self.zoomWidget.value()
         self.canvas.adjustSize()
         self.canvas.update()
+
+    # ── Brightness / Contrast ────────────────────────────────────────────────
+
+    def _on_bc_slider_changed(self):
+        """Update slider labels immediately; debounce the actual pixel update."""
+        bv = self.brightness_slider.value()
+        cv = self.contrast_slider.value()
+        self.brightness_label.setText(f"Bright\n{bv:+d}")
+        self.contrast_label.setText(f"Contrast\n{cv / 100:.1f}\u00d7")
+        # Restart the 80 ms debounce timer
+        self._bc_timer.start(80)
+
+    def applyBrightnessContrast(self):
+        """Apply current slider values to a copy of the raw pixmap.
+
+        Uses cv2.convertScaleAbs (CPU-only, <5 ms on typical images).
+        The raw pixmap and the SAM encoding are never modified.
+        """
+        if self._raw_pixmap is None or self._raw_pixmap.isNull():
+            return
+
+        brightness = self.brightness_slider.value()   # –100 … +100
+        contrast   = self.contrast_slider.value() / 100.0  # 0.1 … 3.0
+
+        # Convert QPixmap → numpy (RGB)
+        qimg = self._raw_pixmap.toImage().convertToFormat(QtGui.QImage.Format_RGB888)
+        w, h = qimg.width(), qimg.height()
+        ptr  = qimg.bits()
+        ptr.setsize(h * w * 3)
+        img  = np.frombuffer(ptr, dtype=np.uint8).reshape((h, w, 3)).copy()
+
+        # Apply:  output = clip(contrast × pixel + brightness)
+        adjusted = cv2.convertScaleAbs(img, alpha=contrast, beta=brightness)
+
+        # Convert back to QPixmap
+        adj_qimg = QImage(adjusted.data, w, h, w * 3, QImage.Format_RGB888)
+        adj_pixmap = QPixmap.fromImage(adj_qimg)
+
+        self.canvas.loadPixmap(adj_pixmap)
+        self.canvas.update()
+
+    def resetBrightnessContrast(self):
+        """Snap both sliders back to neutral (brightness=0, contrast=1.0×)."""
+        self.brightness_slider.setValue(0)
+        self.contrast_slider.setValue(100)
+        # applyBrightnessContrast fires automatically via the debounce timer
 
 
 def get_parser():

@@ -1,0 +1,11 @@
+1_retina
+2_light_torch
+3_vitrector
+4_vitrector_shadow
+5_laser
+6_laser_shadow
+7_forceps
+8_forceps_tip
+9_forceps_tip_top
+10_forceps_tip_bottom
+11_forceps_shadow
