@@ -775,7 +775,7 @@ class MainWindow(QMainWindow):
     def clickLoadSAM(self):
         download_model(self.model_type)
         self.sam = sam_model_registry[self.model_type](checkpoint='{}.pth'.format(self.model_type))
-        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
         self.sam.to(device=self.device)
         self.predictor = SamPredictor(self.sam)
         self.actions.loadSAM.setEnabled(False)
@@ -783,7 +783,7 @@ class MainWindow(QMainWindow):
         self.actions.promptSeg.setEnabled(True)
 
     def clickLoadSTCN(self):
-        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
         self.prop_model = STCN().to(device=self.device).eval()
         # Performs input mapping such that stage 0 model can be loaded
         prop_saved = torch.load('stcn.pth',map_location=torch.device(self.device))

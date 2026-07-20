@@ -366,6 +366,30 @@ class MainWindow(QMainWindow):
             self.tr("Circle Prompt"),
             enabled=True,
         )
+        createConstructionRectangleMode = action(
+            self.tr("Const Box"),
+            lambda: self.toggleDrawMode(False, createMode="construction_rectangle"),
+            'None',
+            "objects",
+            self.tr("Draw a rectangular construction line"),
+            enabled=True,
+        )
+        createConstructionCircleMode = action(
+            self.tr("Const Circle"),
+            lambda: self.toggleDrawMode(False, createMode="construction_circle"),
+            'None',
+            "objects",
+            self.tr("Draw a circular construction line"),
+            enabled=True,
+        )
+        clearConstructionLines = action(
+            self.tr("Clear Const"),
+            lambda: self.clearConstructionLines(),
+            'None',
+            "objects",
+            self.tr("Clear all construction lines"),
+            enabled=True,
+        )
         cleanPrompt = action(
             self.tr("Reject"),
             lambda: self.cleanPrompt(),
@@ -506,6 +530,9 @@ class MainWindow(QMainWindow):
             createPointMode=createPointMode,
             createRectangleMode=createRectangleMode,
             createCircleMode=createCircleMode,
+            createConstructionRectangleMode=createConstructionRectangleMode,
+            createConstructionCircleMode=createConstructionCircleMode,
+            clearConstructionLines=clearConstructionLines,
             editMode=editMode,
             undoLastPoint=undoLastPoint,
             undo=undo,
@@ -549,6 +576,9 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(createPointMode)
         self.toolbar.addAction(createRectangleMode)
         self.toolbar.addAction(createCircleMode)
+        self.toolbar.addAction(self.actions.createConstructionRectangleMode)
+        self.toolbar.addAction(self.actions.createConstructionCircleMode)
+        self.toolbar.addAction(self.actions.clearConstructionLines)
         self.toolbar.addAction(editMode)
         self.toolbar.addAction(undoLastPoint)
         self.toolbar.addAction(undo)
@@ -814,15 +844,10 @@ class MainWindow(QMainWindow):
         self.image_encoded_flag = False
         self.current_img_data = LabelFile.load_image_file(self.current_img)
 
-        # Reset brightness/contrast sliders to neutral on every new image
-        self.brightness_slider.blockSignals(True)
-        self.contrast_slider.blockSignals(True)
-        self.brightness_slider.setValue(0)
-        self.contrast_slider.setValue(100)
-        self.brightness_slider.blockSignals(False)
-        self.contrast_slider.blockSignals(False)
-        self.brightness_label.setText("Bright\n0")
-        self.contrast_label.setText("Contrast\n1.0\u00d7")
+        # Apply current brightness/contrast settings if they are non-neutral
+        if self.brightness_slider.value() != 0 or self.contrast_slider.value() != 100:
+            self.applyBrightnessContrast()
+
 
 
     def clickFileChoose(self):
@@ -882,7 +907,7 @@ class MainWindow(QMainWindow):
     def clickLoadSAM(self):
         download_model(self.model_type)
         self.sam = sam_model_registry[self.model_type](checkpoint='{}.pth'.format(self.model_type))
-        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
         self.sam.to(device=self.device)
         self.predictor = SamPredictor(self.sam)
         self.actions.loadSAM.setEnabled(False)
@@ -1386,29 +1411,15 @@ class MainWindow(QMainWindow):
             self.actions.createPointMode.setEnabled(True)
             self.actions.createRectangleMode.setEnabled(True)
             self.actions.createCircleMode.setEnabled(True)
-
+            self.actions.createConstructionRectangleMode.setEnabled(True)
+            self.actions.createConstructionCircleMode.setEnabled(True)
         else:
-            if createMode == "polygon":
-                self.actions.createPointMode.setEnabled(True)
-                self.actions.createMode.setEnabled(False)
-                self.actions.createRectangleMode.setEnabled(True)
-                self.actions.createCircleMode.setEnabled(True)
-
-            elif createMode == "point":
-                self.actions.createMode.setEnabled(True)
-                self.actions.createPointMode.setEnabled(False)
-                self.actions.createRectangleMode.setEnabled(True)
-                self.actions.createCircleMode.setEnabled(True)
-            elif createMode == "rectangle":
-                self.actions.createMode.setEnabled(True)
-                self.actions.createPointMode.setEnabled(True)
-                self.actions.createRectangleMode.setEnabled(False)
-                self.actions.createCircleMode.setEnabled(True)
-            elif createMode == "circle":
-                self.actions.createMode.setEnabled(True)
-                self.actions.createPointMode.setEnabled(True)
-                self.actions.createRectangleMode.setEnabled(True)
-                self.actions.createCircleMode.setEnabled(False)
+            self.actions.createMode.setEnabled(createMode != "polygon")
+            self.actions.createPointMode.setEnabled(createMode != "point")
+            self.actions.createRectangleMode.setEnabled(createMode != "rectangle")
+            self.actions.createCircleMode.setEnabled(createMode != "circle")
+            self.actions.createConstructionRectangleMode.setEnabled(createMode != "construction_rectangle")
+            self.actions.createConstructionCircleMode.setEnabled(createMode != "construction_circle")
 
     def keyPressEvent(self, ev):
         # Allow cancelling subtract/merge modes with Esc
@@ -1866,6 +1877,12 @@ class MainWindow(QMainWindow):
         self.brightness_slider.setValue(0)
         self.contrast_slider.setValue(100)
         # applyBrightnessContrast fires automatically via the debounce timer
+
+    def clearConstructionLines(self):
+        self.canvas.construction_shapes = []
+        if self.canvas.createMode in ["construction_rectangle", "construction_circle"]:
+            self.canvas.currentConstruction = None
+        self.canvas.update()
 
 
 def get_parser():

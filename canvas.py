@@ -60,6 +60,8 @@ class Canvas(QtWidgets.QWidget):
                 "line": False,
                 "point": False,
                 "linestrip": False,
+                "construction_rectangle": True,
+                "construction_circle": True,
             },
         )
         self.app = kwargs.pop("app", None)
@@ -68,6 +70,8 @@ class Canvas(QtWidgets.QWidget):
         self.mode = self.EDIT
         self.shapes = []
         self.shapesBackups = []
+        self.construction_shapes = []
+        self.currentConstruction = None
         self.current = None
         self.currentPos = None
         self.currentNeg = None
@@ -129,6 +133,8 @@ class Canvas(QtWidgets.QWidget):
             "line",
             "point",
             "linestrip",
+            "construction_rectangle",
+            "construction_circle",
         ]:
             raise ValueError("Unsupported createMode: %s" % value)
         self._createMode = value
@@ -230,7 +236,12 @@ class Canvas(QtWidgets.QWidget):
 
         # Polygon drawing.
         if self.drawing():
-            self.line.shape_type = self.createMode
+            if self.createMode == "construction_rectangle":
+                self.line.shape_type = "rectangle"
+            elif self.createMode == "construction_circle":
+                self.line.shape_type = "circle"
+            else:
+                self.line.shape_type = self.createMode
 
             self.overrideCursor(CURSOR_DRAW)
             if not self.current:
@@ -240,6 +251,10 @@ class Canvas(QtWidgets.QWidget):
                 elif self.currentCircle and len(self.currentCircle.points) == 1:
                     self.line.points = [self.currentCircle.points[0], pos]
                     self.line.shape_type = "circle"
+                    self.line.close()
+                elif self.currentConstruction and len(self.currentConstruction.points) == 1:
+                    self.line.points = [self.currentConstruction.points[0], pos]
+                    self.line.shape_type = "rectangle" if self.createMode == "construction_rectangle" else "circle"
                     self.line.close()
                 self.repaint()  # draw crosshair / preview
                 return
@@ -467,11 +482,7 @@ class Canvas(QtWidgets.QWidget):
                         
                 elif not self.outOfPixmap(pos):
                     # Create new shape.
-                    if self.createMode == "point":
-                        pass
-                    elif self.createMode == "rectangle":
-                        pass
-                    elif self.createMode == "circle":
+                    if self.createMode in ["point", "rectangle", "circle", "construction_rectangle", "construction_circle"]:
                         pass
                     else: 
                         self.current = Shape(shape_type=self.createMode)
@@ -534,6 +545,31 @@ class Canvas(QtWidgets.QWidget):
                         self.drawingPolygon.emit(True)
                         self.update()
 
+                if self.createMode in ["construction_rectangle", "construction_circle"]:
+                    shape_type = "rectangle" if self.createMode == "construction_rectangle" else "circle"
+                    if self.currentConstruction:
+                        if len(self.currentConstruction.points) == 1:
+                            self.currentConstruction.addPoint(pos)
+                            self.currentConstruction.close()
+                            self.construction_shapes.append(self.currentConstruction)
+                            self.currentConstruction = None
+                            self.setHiding()
+                            self.update()
+                        else:
+                            self.currentConstruction = Shape(shape_type=shape_type)
+                            self.currentConstruction.addPoint(pos)
+                            self.line.points = [pos, pos]
+                            self.setHiding()
+                            self.drawingPolygon.emit(True)
+                            self.update()
+                    elif not self.outOfPixmap(pos):
+                        self.currentConstruction = Shape(shape_type=shape_type)
+                        self.currentConstruction.addPoint(pos)
+                        self.line.points = [pos, pos]
+                        self.setHiding()
+                        self.drawingPolygon.emit(True)
+                        self.update()
+
 
                 if self.currentPos:
                     if self.createMode == "point":
@@ -590,11 +626,7 @@ class Canvas(QtWidgets.QWidget):
                         
                 elif not self.outOfPixmap(pos):
                     # Create new shape.
-                    if self.createMode == "point":
-                        pass
-                    elif self.createMode == "rectangle":
-                        pass
-                    elif self.createMode == "circle":
+                    if self.createMode in ["point", "rectangle", "circle", "construction_rectangle", "construction_circle"]:
                         pass
                     else:
                         self.current = Shape(shape_type=self.createMode)
@@ -943,6 +975,25 @@ class Canvas(QtWidgets.QWidget):
         if not self.boundedMoveShapes(shapes, point - offset):
             self.boundedMoveShapes(shapes, point + offset)
 
+    def paintConstructionShape(self, painter, shape):
+        if not shape.points or len(shape.points) < 2:
+            return
+
+        pen = QtGui.QPen(QtGui.QColor(255, 255, 255))
+        pen.setWidth(max(1, int(round(2.0 / self.scale))))
+        pen.setStyle(QtCore.Qt.DashLine)
+        painter.setPen(pen)
+
+        line_path = QtGui.QPainterPath()
+        if shape.shape_type == "rectangle":
+            rectangle = shape.getRectFromLine(*shape.points)
+            line_path.addRect(rectangle)
+        elif shape.shape_type == "circle":
+            rectangle = shape.getCircleRectFromLine(shape.points)
+            line_path.addEllipse(rectangle)
+
+        painter.drawPath(line_path)
+
     def paintEvent(self, event):
         if not self.pixmap:
             return super(Canvas, self).paintEvent(event)
@@ -998,6 +1049,18 @@ class Canvas(QtWidgets.QWidget):
             self.currentCircle.paint(p)
         if self.drawing() and self.line.points and self.createMode in ["rectangle", "circle"]:
             self.line.paint(p)
+
+        # Draw completed construction shapes
+        if hasattr(self, 'construction_shapes') and self.construction_shapes:
+            for shape in self.construction_shapes:
+                self.paintConstructionShape(p, shape)
+
+        # Draw current drawing construction line preview
+        if self.drawing() and self.line.points and self.createMode in ["construction_rectangle", "construction_circle"]:
+            shape_type = "rectangle" if self.createMode == "construction_rectangle" else "circle"
+            temp_shape = Shape(shape_type=shape_type)
+            temp_shape.points = self.line.points
+            self.paintConstructionShape(p, temp_shape)
         if self.selectedShapesCopy:
             for s in self.selectedShapesCopy:
                 s.paint(p)
@@ -1259,6 +1322,7 @@ class Canvas(QtWidgets.QWidget):
         self.pixmap = pixmap
         if clear_shapes:
             self.shapes = []
+            self.construction_shapes = []
         self.update()
 
     def loadShapes(self, shapes, replace=True):
@@ -1291,6 +1355,7 @@ class Canvas(QtWidgets.QWidget):
         self.currentNeg = None
         self.currentBox = None
         self.currentCircle = None
+        self.currentConstruction = None
         self.drawingPolygon.emit(False)
         self.update()
 

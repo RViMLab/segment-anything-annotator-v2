@@ -9,3 +9,5 @@
 9_forceps_tip_top
 10_forceps_tip_bottom
 11_forceps_shadow
+12_syringe
+13_syringe_shadow
