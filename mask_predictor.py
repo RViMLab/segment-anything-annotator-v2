@@ -12,7 +12,7 @@ from metaseg.utils import download_model, load_image, load_video
 class SegAutoMaskPredictor:
     def __init__(self):
         self.model = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
     def load_model(self, model_type):
         if self.model is None:
@@ -102,7 +102,7 @@ class SegAutoMaskPredictor:
 class SegManualMaskPredictor:
     def __init__(self):
         self.model = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
     def load_model(self, model_type):
         if self.model is None:

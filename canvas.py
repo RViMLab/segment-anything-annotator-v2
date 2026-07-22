@@ -56,10 +56,12 @@ class Canvas(QtWidgets.QWidget):
             {
                 "polygon": False,
                 "rectangle": True,
-                "circle": False,
+                "circle": True,
                 "line": False,
                 "point": False,
                 "linestrip": False,
+                "construction_rectangle": True,
+                "construction_circle": True,
             },
         )
         self.app = kwargs.pop("app", None)
@@ -68,10 +70,13 @@ class Canvas(QtWidgets.QWidget):
         self.mode = self.EDIT
         self.shapes = []
         self.shapesBackups = []
+        self.construction_shapes = []
+        self.currentConstruction = None
         self.current = None
         self.currentPos = None
         self.currentNeg = None
         self.currentBox = None
+        self.currentCircle = None
         self.selectedShapes = []  # save the selected shapes here
         self.selectedShapesCopy = []
         # self.line represents:
@@ -128,6 +133,8 @@ class Canvas(QtWidgets.QWidget):
             "line",
             "point",
             "linestrip",
+            "construction_rectangle",
+            "construction_circle",
         ]:
             raise ValueError("Unsupported createMode: %s" % value)
         self._createMode = value
@@ -205,7 +212,11 @@ class Canvas(QtWidgets.QWidget):
         self.hShape = self.hVertex = self.hEdge = None
 
     def selectedVertex(self):
-        return self.hVertex is not None
+        return (
+            self.hVertex is not None
+            and self.hShape is not None
+            and 0 <= self.hVertex < len(self.hShape.points)
+        )
 
     def selectedEdge(self):
         return self.hEdge is not None
@@ -225,11 +236,27 @@ class Canvas(QtWidgets.QWidget):
 
         # Polygon drawing.
         if self.drawing():
-            self.line.shape_type = self.createMode
+            if self.createMode == "construction_rectangle":
+                self.line.shape_type = "rectangle"
+            elif self.createMode == "construction_circle":
+                self.line.shape_type = "circle"
+            else:
+                self.line.shape_type = self.createMode
 
             self.overrideCursor(CURSOR_DRAW)
             if not self.current:
-                self.repaint()  # draw crosshair
+                if self.currentBox and len(self.currentBox.points) == 1:
+                    self.line.points = [self.currentBox.points[0], pos]
+                    self.line.close()
+                elif self.currentCircle and len(self.currentCircle.points) == 1:
+                    self.line.points = [self.currentCircle.points[0], pos]
+                    self.line.shape_type = "circle"
+                    self.line.close()
+                elif self.currentConstruction and len(self.currentConstruction.points) == 1:
+                    self.line.points = [self.currentConstruction.points[0], pos]
+                    self.line.shape_type = "rectangle" if self.createMode == "construction_rectangle" else "circle"
+                    self.line.close()
+                self.repaint()  # draw crosshair / preview
                 return
 
             if self.outOfPixmap(pos):
@@ -334,7 +361,7 @@ class Canvas(QtWidgets.QWidget):
                         index, shape = self.hVertex, self.hShape
                         if index != self.modified_memory[0] and shape == self.modified_memory[1]:
                             self.start_modify_flag = False
-                    if self.start_modify_flag == True:
+                    if self.start_modify_flag == True and len(self.current) > 0:
                         d2 = (self.current[-1].x() - pos.x()) ** 2 + (self.current[-1].y() - pos.y()) ** 2
                         if d2 >= 80:
                             self.current.addPoint(pos)
@@ -420,7 +447,7 @@ class Canvas(QtWidgets.QWidget):
     def removeSelectedPoint(self):
         shape = self.prevhShape
         index = self.prevhVertex
-        if shape is None or index is None:
+        if shape is None or index is None or not (0 <= index < len(shape.points)):
             return
         shape.removePoint(index)
         shape.highlightClear()
@@ -455,9 +482,7 @@ class Canvas(QtWidgets.QWidget):
                         
                 elif not self.outOfPixmap(pos):
                     # Create new shape.
-                    if self.createMode == "point":
-                        pass
-                    elif self.createMode == "rectangle":
+                    if self.createMode in ["point", "rectangle", "circle", "construction_rectangle", "construction_circle"]:
                         pass
                     else: 
                         self.current = Shape(shape_type=self.createMode)
@@ -491,6 +516,55 @@ class Canvas(QtWidgets.QWidget):
                     if self.createMode == "rectangle":
                         self.currentBox = Shape(shape_type=self.createMode)
                         self.currentBox.addPoint(pos)
+                        self.line.points = [pos, pos]
+                        self.setHiding()
+                        self.drawingPolygon.emit(True)
+                        self.update()
+
+                if self.currentCircle:
+                    if self.createMode == "circle":
+                        if len(self.currentCircle.points) == 1:
+                            self.currentCircle.addPoint(pos)
+                            self.currentCircle.close()
+                            self.app.clickManualSegCircle()
+                            self.setHiding()
+                            self.update()
+                        else:
+                            self.currentCircle = Shape(shape_type=self.createMode)
+                            self.currentCircle.addPoint(pos)
+                            self.line.points = [pos, pos]
+                            self.setHiding()
+                            self.drawingPolygon.emit(True)
+                            self.update()
+                elif not self.outOfPixmap(pos):
+                    if self.createMode == "circle":
+                        self.currentCircle = Shape(shape_type=self.createMode)
+                        self.currentCircle.addPoint(pos)
+                        self.line.points = [pos, pos]
+                        self.setHiding()
+                        self.drawingPolygon.emit(True)
+                        self.update()
+
+                if self.createMode in ["construction_rectangle", "construction_circle"]:
+                    shape_type = "rectangle" if self.createMode == "construction_rectangle" else "circle"
+                    if self.currentConstruction:
+                        if len(self.currentConstruction.points) == 1:
+                            self.currentConstruction.addPoint(pos)
+                            self.currentConstruction.close()
+                            self.construction_shapes.append(self.currentConstruction)
+                            self.currentConstruction = None
+                            self.setHiding()
+                            self.update()
+                        else:
+                            self.currentConstruction = Shape(shape_type=shape_type)
+                            self.currentConstruction.addPoint(pos)
+                            self.line.points = [pos, pos]
+                            self.setHiding()
+                            self.drawingPolygon.emit(True)
+                            self.update()
+                    elif not self.outOfPixmap(pos):
+                        self.currentConstruction = Shape(shape_type=shape_type)
+                        self.currentConstruction.addPoint(pos)
                         self.line.points = [pos, pos]
                         self.setHiding()
                         self.drawingPolygon.emit(True)
@@ -552,9 +626,7 @@ class Canvas(QtWidgets.QWidget):
                         
                 elif not self.outOfPixmap(pos):
                     # Create new shape.
-                    if self.createMode == "point":
-                        pass
-                    if self.createMode == "rectangle":
+                    if self.createMode in ["point", "rectangle", "circle", "construction_rectangle", "construction_circle"]:
                         pass
                     else:
                         self.current = Shape(shape_type=self.createMode)
@@ -588,6 +660,30 @@ class Canvas(QtWidgets.QWidget):
                     if self.createMode == "rectangle":
                         self.currentBox = Shape(shape_type=self.createMode)
                         self.currentBox.addPoint(pos)
+                        self.line.points = [pos, pos]
+                        self.setHiding()
+                        self.drawingPolygon.emit(True)
+                        self.update()
+
+                if self.currentCircle:
+                    if self.createMode == "circle":
+                        if len(self.currentCircle.points) == 1:
+                            self.currentCircle.addPoint(pos)
+                            self.currentCircle.close()
+                            self.app.clickManualSegCircle()
+                            self.setHiding()
+                            self.update()
+                        else:
+                            self.currentCircle = Shape(shape_type=self.createMode)
+                            self.currentCircle.addPoint(pos)
+                            self.line.points = [pos, pos]
+                            self.setHiding()
+                            self.drawingPolygon.emit(True)
+                            self.update()
+                elif not self.outOfPixmap(pos):
+                    if self.createMode == "circle":
+                        self.currentCircle = Shape(shape_type=self.createMode)
+                        self.currentCircle.addPoint(pos)
                         self.line.points = [pos, pos]
                         self.setHiding()
                         self.drawingPolygon.emit(True)
@@ -801,6 +897,8 @@ class Canvas(QtWidgets.QWidget):
 
     def boundedMoveVertex(self, pos):
         index, shape = self.hVertex, self.hShape
+        if shape is None or index is None or not (0 <= index < len(shape.points)):
+            return
         point = shape[index]
         if self.outOfPixmap(pos):
             pos = self.intersectionPoint(point, pos)
@@ -877,6 +975,25 @@ class Canvas(QtWidgets.QWidget):
         if not self.boundedMoveShapes(shapes, point - offset):
             self.boundedMoveShapes(shapes, point + offset)
 
+    def paintConstructionShape(self, painter, shape):
+        if not shape.points or len(shape.points) < 2:
+            return
+
+        pen = QtGui.QPen(QtGui.QColor(255, 255, 255))
+        pen.setWidth(max(1, int(round(2.0 / self.scale))))
+        pen.setStyle(QtCore.Qt.DashLine)
+        painter.setPen(pen)
+
+        line_path = QtGui.QPainterPath()
+        if shape.shape_type == "rectangle":
+            rectangle = shape.getRectFromLine(*shape.points)
+            line_path.addRect(rectangle)
+        elif shape.shape_type == "circle":
+            rectangle = shape.getCircleRectFromLine(shape.points)
+            line_path.addEllipse(rectangle)
+
+        painter.drawPath(line_path)
+
     def paintEvent(self, event):
         if not self.pixmap:
             return super(Canvas, self).paintEvent(event)
@@ -899,7 +1016,7 @@ class Canvas(QtWidgets.QWidget):
             and self.prevMovePoint
             and not self.outOfPixmap(self.prevMovePoint)
         ):
-            p.setPen(QtGui.QColor(0, 0, 0))
+            p.setPen(QtGui.QColor(255, 255, 255))
             p.drawLine(
                 0,
                 int(self.prevMovePoint.y()),
@@ -928,6 +1045,22 @@ class Canvas(QtWidgets.QWidget):
             self.currentNeg.paint(p,flag=0)
         if self.currentBox:
             self.currentBox.paint(p)
+        if self.currentCircle:
+            self.currentCircle.paint(p)
+        if self.drawing() and self.line.points and self.createMode in ["rectangle", "circle"]:
+            self.line.paint(p)
+
+        # Draw completed construction shapes
+        if hasattr(self, 'construction_shapes') and self.construction_shapes:
+            for shape in self.construction_shapes:
+                self.paintConstructionShape(p, shape)
+
+        # Draw current drawing construction line preview
+        if self.drawing() and self.line.points and self.createMode in ["construction_rectangle", "construction_circle"]:
+            shape_type = "rectangle" if self.createMode == "construction_rectangle" else "circle"
+            temp_shape = Shape(shape_type=shape_type)
+            temp_shape.points = self.line.points
+            self.paintConstructionShape(p, temp_shape)
         if self.selectedShapesCopy:
             for s in self.selectedShapesCopy:
                 s.paint(p)
@@ -989,6 +1122,19 @@ class Canvas(QtWidgets.QWidget):
         self.currentPos = None
         self.currentNeg = None
         self.currentBox = None
+        self.setHiding(False)
+        self.newShape.emit()
+        self.update()
+
+    def finaliseCircle(self):
+        assert self.currentCircle
+        self.currentCircle.close()
+        self.shapes.append(self.currentCircle)
+        self.storeShapes()
+        self.current = None
+        self.currentPos = None
+        self.currentNeg = None
+        self.currentCircle = None
         self.setHiding(False)
         self.newShape.emit()
         self.update()
@@ -1176,6 +1322,7 @@ class Canvas(QtWidgets.QWidget):
         self.pixmap = pixmap
         if clear_shapes:
             self.shapes = []
+            self.construction_shapes = []
         self.update()
 
     def loadShapes(self, shapes, replace=True):
@@ -1202,9 +1349,20 @@ class Canvas(QtWidgets.QWidget):
     def restoreCursor(self):
         QtWidgets.QApplication.restoreOverrideCursor()
 
+    def cancelDrawing(self):
+        self.current = None
+        self.currentPos = None
+        self.currentNeg = None
+        self.currentBox = None
+        self.currentCircle = None
+        self.currentConstruction = None
+        self.drawingPolygon.emit(False)
+        self.update()
+
     def resetState(self):
         self.restoreCursor()
         self.pixmap = None
+        self.cancelDrawing()
         self.shapesBackups = []
         self.update()
 

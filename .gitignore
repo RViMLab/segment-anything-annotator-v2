@@ -12,11 +12,11 @@ STCN/
 # Virtual environment folders
 .venv/
 
-# Output / generated files
-output/
-
 # Local backups
 backup/
+
+# Annotation output folders (session-specific, e.g. output_OD-2026-05-19_.../)
+output_*/
 
 # Word documents
 *.docx
