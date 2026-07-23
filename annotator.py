@@ -126,7 +126,6 @@ class MainWindow(QMainWindow):
             self.tr("Polygon Labels"), self
         )
         self.shape_dock.setObjectName("Labels")
-        self.shape_dock.setWidget(self.labelList)
 
         self.category_list = [i.strip() for i in open('categories.txt', 'r', encoding='utf-8').readlines()]
         self.labelDialog = LabelDialog(
@@ -189,8 +188,12 @@ class MainWindow(QMainWindow):
         self._raw_pixmap = None  # stores the unmodified image pixmap
 
         # Brightness slider  (-100 … +100, step 1, default 0)
-        self.brightness_label = QLabel("Bright\n0", self)
-        self.brightness_label.setStyleSheet("font-size: 8pt; qproperty-alignment: 'AlignHCenter';")
+        self.brightness_label = QLabel("Brightness", self)
+        self.brightness_label.setAlignment(Qt.AlignCenter)
+        self.brightness_label.setStyleSheet("font-size: 9pt; font-weight: bold;")
+        self.brightness_value_label = QLabel("0", self)
+        self.brightness_value_label.setAlignment(Qt.AlignCenter)
+        self.brightness_value_label.setStyleSheet("font-size: 8pt;")
         self.brightness_slider = QSlider(Qt.Vertical, self)
         self.brightness_slider.setRange(-100, 100)
         self.brightness_slider.setValue(0)
@@ -199,8 +202,12 @@ class MainWindow(QMainWindow):
         self.brightness_slider.valueChanged.connect(self._on_bc_slider_changed)
 
         # Contrast slider  (10 … 300 → maps to 0.1 … 3.0×, default 100 = 1.0×)
-        self.contrast_label = QLabel("Contrast\n1.0×", self)
-        self.contrast_label.setStyleSheet("font-size: 8pt; qproperty-alignment: 'AlignHCenter';")
+        self.contrast_label = QLabel("Contrast", self)
+        self.contrast_label.setAlignment(Qt.AlignCenter)
+        self.contrast_label.setStyleSheet("font-size: 9pt; font-weight: bold;")
+        self.contrast_value_label = QLabel("1.0×", self)
+        self.contrast_value_label.setAlignment(Qt.AlignCenter)
+        self.contrast_value_label.setStyleSheet("font-size: 8pt;")
         self.contrast_slider = QSlider(Qt.Vertical, self)
         self.contrast_slider.setRange(10, 300)
         self.contrast_slider.setValue(100)
@@ -221,7 +228,7 @@ class MainWindow(QMainWindow):
         #naive layout
         # shifted down to make room for filename label
         self.scrollArea.move(int(0.02 * global_w), int(0.12 * global_h))
-        self.scrollArea.resize(int(0.69 * global_w), int(0.7 * global_h))   # narrowed to make room for B/C panel
+        self.scrollArea.resize(int(0.64 * global_w), int(0.7 * global_h))
         self.shape_dock.move(int(0.79 * global_w), int(0.12 * global_h))
         self.shape_dock.resize(int(0.2 * global_w), int(0.7 * global_h))
         self.button_next.move(int(0.18 * global_w), int(0.89 * global_h))
@@ -233,7 +240,7 @@ class MainWindow(QMainWindow):
         self.class_on_text.move(int(0.01 * global_w), int(0.94 * global_h))
         # place filename label centered above the scroll area
         self.img_name.move(int(0.02 * global_w), int(0.09 * global_h))
-        self.img_name.resize(int(0.69 * global_w), int(0.03 * global_h))
+        self.img_name.resize(int(0.64 * global_w), int(0.03 * global_h))
         self.img_progress_bar.move(int(0.01 * global_w), int(0.84 * global_h))
         self.img_progress_bar.resize(int(0.3 * global_w),int(0.04 * global_h))
         
@@ -247,34 +254,58 @@ class MainWindow(QMainWindow):
         self.button_proposal4.move(int(0.84 * global_w), int(0.84 * global_h))
 
         # ── Brightness / Contrast – vertical panel between image view and dock ──
-        # The gap spans from x=0.72*w to x=0.78*w (6% of window width).
-        # Each slider column is ~2.5% wide; the two columns are centred in the gap
-        # with a small spacing between them.
-        _vc_col_w   = int(0.028 * global_w)   # width of each slider column
-        _vc_sld_h   = int(0.52 * global_h)    # tall slider
-        _vc_lbl_h   = int(0.04 * global_h)    # label height above each slider
+        # Reserve the area from 67.5% to 78.5% of the window for two equal columns.
+        _vc_left    = int(0.675 * global_w)
+        _vc_right   = int(0.785 * global_w)
+        _vc_gap     = max(8, int(0.01 * global_w))
+        _vc_col_w   = int((_vc_right - _vc_left - _vc_gap) / 2)
+        _vc_sld_h   = int(0.50 * global_h)    # tall slider
+        _vc_title_h = int(0.025 * global_h)
+        _vc_value_h = int(0.022 * global_h)
         _vc_btn_h   = int(0.03 * global_h)    # reset button height
         _vc_top     = int(0.13 * global_h)    # top of the label row
-        _vc_gap     = int(0.015 * global_w)   # horizontal gap between the two columns
 
-        # Centre the two columns inside the gap
-        _vc_x1 = int(0.722 * global_w)        # brightness column left edge
+        _vc_x1 = _vc_left
         _vc_x2 = _vc_x1 + _vc_col_w + _vc_gap  # contrast column left edge
 
         # Brightness column
         self.brightness_label.move(_vc_x1, _vc_top)
-        self.brightness_label.resize(_vc_col_w, _vc_lbl_h)
-        self.brightness_slider.move(_vc_x1, _vc_top + _vc_lbl_h + 2)
+        self.brightness_label.resize(_vc_col_w, _vc_title_h)
+        self.brightness_value_label.move(_vc_x1, _vc_top + _vc_title_h)
+        self.brightness_value_label.resize(_vc_col_w, _vc_value_h)
+        self.brightness_slider.move(_vc_x1, _vc_top + _vc_title_h + _vc_value_h + 2)
         self.brightness_slider.resize(_vc_col_w, _vc_sld_h)
 
         # Contrast column
         self.contrast_label.move(_vc_x2, _vc_top)
-        self.contrast_label.resize(_vc_col_w, _vc_lbl_h)
-        self.contrast_slider.move(_vc_x2, _vc_top + _vc_lbl_h + 2)
+        self.contrast_label.resize(_vc_col_w, _vc_title_h)
+        self.contrast_value_label.move(_vc_x2, _vc_top + _vc_title_h)
+        self.contrast_value_label.resize(_vc_col_w, _vc_value_h)
+        self.contrast_slider.move(_vc_x2, _vc_top + _vc_title_h + _vc_value_h + 2)
         self.contrast_slider.resize(_vc_col_w, _vc_sld_h)
 
+        # Centre headings over the slider grooves, excluding tick-mark space.
+        _vc_header_w = max(90, int(0.06 * global_w))
+        for title, value, slider in (
+            (self.brightness_label, self.brightness_value_label, self.brightness_slider),
+            (self.contrast_label, self.contrast_value_label, self.contrast_slider),
+        ):
+            option = QtWidgets.QStyleOptionSlider()
+            slider.initStyleOption(option)
+            groove = slider.style().subControlRect(
+                QtWidgets.QStyle.CC_Slider,
+                option,
+                QtWidgets.QStyle.SC_SliderGroove,
+                slider,
+            )
+            header_x = slider.x() + groove.center().x() - (_vc_header_w // 2)
+            title.move(header_x, _vc_top)
+            title.resize(_vc_header_w, _vc_title_h)
+            value.move(header_x, _vc_top + _vc_title_h)
+            value.resize(_vc_header_w, _vc_value_h)
+
         # Reset button – spans both columns, sits below the sliders
-        _vc_reset_y = _vc_top + _vc_lbl_h + 2 + _vc_sld_h + 6
+        _vc_reset_y = _vc_top + _vc_title_h + _vc_value_h + 2 + _vc_sld_h + 6
         _vc_reset_w = _vc_x2 + _vc_col_w - _vc_x1
         self.button_bc_reset.move(_vc_x1, _vc_reset_y)
         self.button_bc_reset.resize(_vc_reset_w, _vc_btn_h)
@@ -437,17 +468,24 @@ class MainWindow(QMainWindow):
         )
 
         hideAll = action(
-            self.tr("&Hide\nPolygons"),
+            self.tr("Hide All"),
             functools.partial(self.togglePolygons, False),
             icon="eye",
             tip=self.tr("Hide all polygons"),
             enabled=False,
         )
         showAll = action(
-            self.tr("&Show\nPolygons"),
+            self.tr("Show All"),
             functools.partial(self.togglePolygons, True),
             icon="eye",
             tip=self.tr("Show all polygons"),
+            enabled=False,
+        )
+        toggleAll = action(
+            self.tr("Toggle Polygons"),
+            self.toggleAllPolygons,
+            'H',
+            tip=self.tr("Hide or show all polygons"),
             enabled=False,
         )
 
@@ -545,7 +583,7 @@ class MainWindow(QMainWindow):
             subtract=subtract,
             merge=merge,
             save=save,
-            onShapesPresent=(saveAs, hideAll, showAll),
+            onShapesPresent=(saveAs, hideAll, showAll, toggleAll),
             menu=(
                 createMode,
                 editMode,
@@ -554,6 +592,28 @@ class MainWindow(QMainWindow):
                 save,
             )
             )
+
+        visibility_widget = QWidget()
+        visibility_layout = QtWidgets.QHBoxLayout(visibility_widget)
+        visibility_layout.setContentsMargins(4, 4, 4, 4)
+        visibility_layout.setSpacing(4)
+        self.button_hide_all = QtWidgets.QToolButton(visibility_widget)
+        self.button_hide_all.setDefaultAction(hideAll)
+        self.button_hide_all.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.button_show_all = QtWidgets.QToolButton(visibility_widget)
+        self.button_show_all.setDefaultAction(showAll)
+        self.button_show_all.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        visibility_layout.addWidget(self.button_hide_all)
+        visibility_layout.addWidget(self.button_show_all)
+
+        labels_widget = QWidget()
+        labels_layout = QtWidgets.QVBoxLayout(labels_widget)
+        labels_layout.setContentsMargins(0, 0, 0, 0)
+        labels_layout.setSpacing(0)
+        labels_layout.addWidget(visibility_widget)
+        labels_layout.addWidget(self.labelList)
+        self.shape_dock.setWidget(labels_widget)
+        self.addAction(toggleAll)
 
         # Custom context menu for the canvas widget:
         utils.addActions(self.canvas.menus[0], self.actions.menu)
@@ -1680,6 +1740,13 @@ class MainWindow(QMainWindow):
         for item in self.labelList:
             item.setCheckState(Qt.Checked if value else Qt.Unchecked)
 
+    def toggleAllPolygons(self):
+        items = list(self.labelList)
+        if not items:
+            return
+        show_all = not any(item.checkState() == Qt.Checked for item in items)
+        self.togglePolygons(show_all)
+
     def _update_shape_color(self, shape):
         # r, g, b = self._get_rgb_by_label(shape.label)
         r, g, b = self._get_rgb_by_label(shape.group_id)
@@ -1839,8 +1906,8 @@ class MainWindow(QMainWindow):
         """Update slider labels immediately; debounce the actual pixel update."""
         bv = self.brightness_slider.value()
         cv = self.contrast_slider.value()
-        self.brightness_label.setText(f"Bright\n{bv:+d}")
-        self.contrast_label.setText(f"Contrast\n{cv / 100:.1f}\u00d7")
+        self.brightness_value_label.setText(f"{bv:+d}")
+        self.contrast_value_label.setText(f"{cv / 100:.1f}\u00d7")
         # Restart the 80 ms debounce timer
         self._bc_timer.start(80)
 
