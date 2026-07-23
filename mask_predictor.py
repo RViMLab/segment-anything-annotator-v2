@@ -5,8 +5,33 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from metaseg import SamAutomaticMaskGenerator, SamPredictor, sam_model_registry
-from metaseg.utils import download_model, load_image, load_video
+from segment_anything import SamAutomaticMaskGenerator, SamPredictor, sam_model_registry
+
+from utils.download_model import download_model
+
+
+def load_image(source):
+    if isinstance(source, np.ndarray):
+        return source
+    image = cv2.imread(source)
+    if image is None:
+        raise ValueError(f"Unable to load image: {source}")
+    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
+def load_video(source, output_path="output.mp4"):
+    capture = cv2.VideoCapture(source)
+    frame_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = capture.get(cv2.CAP_PROP_FPS) or 30
+    codec = cv2.VideoWriter_fourcc(*"mp4v")
+    output = cv2.VideoWriter(
+        output_path,
+        codec,
+        fps,
+        (frame_width, frame_height),
+    )
+    return capture, output
 
 
 class SegAutoMaskPredictor:
@@ -94,7 +119,6 @@ class SegAutoMaskPredictor:
 
         out.release()
         cap.release()
-        cv2.destroyAllWindows()
 
         return "output.mp4"
 
