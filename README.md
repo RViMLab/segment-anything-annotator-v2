@@ -1,159 +1,246 @@
-# segment-anything-annotator
-We developed a python UI based on labelme and segment-anything for pixel-level annotation. It support generating multiple masks by SAM(box/point prompt),  efficient polygon modification and category record. We will add more features (such as incorporating CLIP-based methods for category proposal and VOS methods for mask association of video datasets)
+# Segment Anything Annotator
 
+A PyQt desktop application for pixel-level image annotation with Meta's
+[Segment Anything Model (SAM)](https://github.com/facebookresearch/segment-anything).
+Generate masks from point, box, or circle prompts; refine them as polygons; and
+save annotations in Labelme-compatible JSON files.
 
-This repository is based on [haochenheheda/segment-anything-annotator] (https://github.com/haochenheheda/segment-anything-annotator/tree/master).
+> This project uses the original SAM models (`vit_b`, `vit_l`, and `vit_h`), not
+> SAM 2.
 
-## New Features (Implemented Edits)
+<p align="center">
+  <img src="demo.gif" alt="Segment Anything Annotator demo" width="720">
+</p>
 
-- Jump-to-image: Added a `Jump` button + dialog that lists "index - filename" and lets you type to search and jump to that image. Jump shortcut: `J` (clickable or via shortcut).
-- Filename label: Added a visible filename label (`img_name`) centered above the image area and updated it in `loadImg()`.
-- UI layout tweaks: shifted `scrollArea`, `shape_dock`, progress bar, and navigation buttons to make room for the filename label.
-- Subtract polygons: added `startSubtract()` flow and `_perform_subtract()` which rasterizes source/target, subtracts masks, converts resulting contours back into polygons, and keeps all resulting contours as separate shapes. Subtract shortcut: `Shift+S`.
-- Merge polygons: added `startMerge()` flow and `_perform_merge()` which unions masks and creates polygons from all resulting contours. Merge shortcut: `m`.
-- Toolbar actions: added `Subtract` and `Merge` actions to the toolbar.
-- ESC handling: pressing `Esc` cancels active subtract/merge modes.
-
-Any feedback or suggestions are welcomed. We will continuously add features and fix bugs. 👀👀👀
-
-
-## News
-`28 Apr`: Change the output format with labelme format. If you want to use the old output format, please use `backup/annotator.py`.
-
-`21 Apr`: Add annotation script for video dataset. See [Video Usage](https://github.com/haochenheheda/segment-anything-annotator#video-usage) for the details.
-<img src="demo_jntm.gif" alt="VIdeo_Demo" width="720" height="480">
 ## Features
-- [x] Interactive Segmentation by SAM (both boxes and points prompt)
-- [x] Multiple Output Choices
-- [x] Category Annotation
-- [x] Polygon modification
-- [ ] CLIP for Category Proposal
-- [x] STCN for Video Dataset Annotation
 
-## Demo
-<img src="demo.gif" alt="Demo" width="720" height="480">
+- SAM-assisted segmentation using positive/negative points, boxes, and circles
+- Manual polygon creation and vertex editing
+- Multiple mask proposals
+- Category and object ID annotation
+- Merge and subtract polygon operations
+- Polygon simplification
+- Hide/show controls for all polygons
+- Brightness and contrast preview controls
+- Jump-to-image dialog and keyboard navigation
+- Labelme-compatible JSON output
+- Optional STCN-based video annotation workflow
+- CUDA, Apple MPS, and CPU device selection
 
-## Installation
-  1. Python>=3.8
-  2. [Pytorch](https://pytorch.org/)
-  3. pip install -r requirements.txt
+## Quick start
 
-## Usage
-### 1. Start the Annotation Platform
+### 1. Create an environment
 
+Python 3.8 or newer is required. A virtual environment is recommended.
+
+Windows PowerShell:
+
+```powershell
+python -m venv annotator_env
+.\annotator_env\Scripts\Activate.ps1
 ```
+
+Linux or macOS:
+
+```bash
+python3 -m venv annotator_env
+source annotator_env/bin/activate
+```
+
+### 2. Install PyTorch
+
+Install the build appropriate for your operating system and accelerator using
+the [official PyTorch installer](https://pytorch.org/get-started/locally/).
+
+For a CPU-only installation:
+
+```bash
+python -m pip install torch torchvision
+```
+
+### 3. Install the application dependencies
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+### 4. Start the image annotator
+
+```bash
 python annotator.py --app_resolution 1000,1600 --model_type vit_b --keep_input_size True --max_size 720
 ```
-`--model_type`: vit_b, vit_l, vit_h
 
-`--keep_input_size`: `True`: keep the origin image size for SAM; `False`: resize the input image to `--max_size` (save GPU memory)
+The `--app_resolution` value is `height,width`.
 
-### 2. Load the category list file if you want to annotate object categories.
-Click the `Category File` on the top tool bar and choose your own one, such as the `categories.txt` in this repo.
+| Argument | Description |
+| --- | --- |
+| `--model_type` | SAM checkpoint type: `vit_b`, `vit_l`, or `vit_h` |
+| `--keep_input_size` | Keep the original image size for SAM when `True` |
+| `--max_size` | Maximum input dimension when resizing is enabled |
 
-### 3. Specify the image and save folds
-Click the 'Image Directory' on the top tool bar to specify the fold containing images (in .jpg or .png).
-Click the 'Save Directory' on the top tool bar to specify the fold for saving the annotations. The annotations of each image will be saved as json file in the following format
+## SAM checkpoints
+
+Click **Load SAM** to download the selected checkpoint automatically. The
+checkpoint is saved in the repository root as `vit_b.pth`, `vit_l.pth`, or
+`vit_h.pth`.
+
+You can instead download a checkpoint manually from the
+[official SAM repository](https://github.com/facebookresearch/segment-anything#model-checkpoints)
+and place it in the repository root using the corresponding filename.
+
+`vit_b` is the smallest and fastest option. `vit_l` and `vit_h` require more
+memory but use larger model backbones.
+
+## Image annotation workflow
+
+1. Click **Category File** and select a text file containing one category per
+   line, such as `categories.txt`.
+2. Click **Image Directory** and select a folder containing `.jpg` or `.png`
+   images.
+3. Click **Save Directory** and select the output folder.
+4. Click **Load SAM**.
+5. Select a prompt mode and annotate the image.
+6. Choose one of the mask proposals and click **Accept**.
+7. Edit the resulting polygon if needed, then save the annotation.
+
+The application writes one Labelme-compatible JSON file per image.
+
+### Prompt and editing controls
+
+- **Point Prompt:** left-click for positive points and right-click for negative
+  points.
+- **Box Prompt:** draw a bounding box around the object.
+- **Circle Prompt:** draw a circular prompt around the object.
+- **Manual Polygons:** click along the object boundary to create a polygon.
+- **Edit Polygons:** select and move polygon vertices. Arrow keys nudge the
+  selected polygon.
+- **Merge Polygons:** select a source polygon, activate Merge, then select the
+  target.
+- **Subtract Polygons:** select the polygon to subtract, activate Subtract, then
+  select the target.
+
+## Image annotator shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Shift+I` | Choose image directory |
+| `Shift+L` | Choose save directory |
+| `Page Up` | Previous image |
+| `Page Down` | Next image |
+| `J` | Jump to an image |
+| `N` or `Ctrl+W` | Manual polygon mode |
+| `P` | Point prompt mode |
+| `B` | Box prompt mode |
+| `C` | Circle prompt mode |
+| `A` | Accept the selected proposal |
+| `R` | Reject proposals and clear prompts |
+| `1`–`4` | Select a mask proposal |
+| `E` | Edit polygon mode |
+| Arrow keys | Nudge a selected polygon |
+| `D` | Delete selected polygons |
+| `H` | Hide/show all polygons |
+| `M` | Merge polygons |
+| `Shift+S` | Subtract polygons |
+| `Shift+R` | Reduce polygon points |
+| `U` | Undo the last point |
+| `Ctrl+U` | Undo the last shape edit |
+| `S` | Save |
+| `Alt+S` | Save as |
+| `Ctrl` + mouse wheel | Zoom |
+| `Esc` | Cancel an active merge or subtract operation |
+
+## Video annotation
+
+Video annotation additionally requires
+[STCN](https://github.com/hkchengrex/STCN) and its `stcn.pth` checkpoint:
+
+```text
+segment-anything-annotator-v2/
+├── STCN/
+├── stcn.pth
+├── annotator_video.py
+└── ...
 ```
-[
-  #object1
-  {
-      'label':<category>, 
-      'group_id':<id>,
-      'shape_type':'polygon',
-      'points':[[x1,y1],[x2,y2],[x3,y3],...]
-  },
-  #object2
-  ...
-]
+
+Organize extracted video frames as:
+
+```text
+video_folder/
+├── video_1/
+│   ├── 00000.jpg
+│   ├── 00001.jpg
+│   └── ...
+└── video_2/
+    └── ...
 ```
 
-### 4. Load SAM model
-Click the "Load SAM" on the top tool bar to load the SAM model. The model will be automatically downloaded at the first time. Please be patient. Or you can manually download the [models](https://github.com/facebookresearch/segment-anything#model-checkpoints) and put them in the root directory named `vit_b.pth`, `vit_l.pth` and `vit_h.pth`.
+Start the video annotator with:
 
-### 5. Annotating Functions
-`Manual Polygons`: manually add masks by clicking on the boundary of the objects, just like the Labelme (Press right button and drag to draw the arcs easily).
-
-`Point Prompt`: generate mask proposals with clicks. The mouse leftpress/rightpress represent positive/negative clicks respectively.
-You can see several mask proposals below in the boxes: `Proposal1-4`, and you could choose one by clicking or shortcuts `1`,`2`,`3`,`4`.
-
-`Box Prompt`: generate mask proposals with boxes.
-
-`Accept`(shortcut:`a`): accept the chosen proposal and add to the annotation dock.
-
-`Reject`(shortcut:`r`): reject the proposals and clean the workspace.
-
-`Save`(shortcut:'s'): save annotations to file. Do not forget to save your annotation for each image, or it will be lost when you switch to the next image.
-
-`Edit Polygons`: in this mode, you could modify the annotated objects, such as changing the category labels or ids by double click on object items in the
-annotation dock. And you can modify the boundary by draging the points on the boundary.
-
-`Delete`(shortcut:'d'): under `Edit Mode`, delete selected/hightlight objects from annotation dock.
-
-`Reduce Point`: under `Edit Mode`, if you find the polygon is too dense to edit, you could use this button to reduce the points on the selected polygons. But this will slightly reduce the annotation quality.
-
-`Zoom in/out`: press 'CTRL' and scroll wheel on the mouse
-
-`Class On/Off`: if the Class is turned on, a dialog will show after you accept a mask to record category and id, or the catgeory will be default value "Object".
-
-
-## Video Usage
-### 1. clone [STCN](https://github.com/hkchengrex/STCN), download the [stcn.pth](https://drive.google.com/file/d/1mRrE0uCI2ktdWlUgapJI_KmgeIiF2eOm/view) and put them in the root directory like this:
-```
--| segment-anything-annotator
-    -| annotation_video.py
-    .....
-    -| STCN
-    -| stcn.pth
-```
-
-### 2. Start the Annotation Platform
-```
+```bash
 python annotator_video.py --app_resolution 1000,1600 --model_type vit_b --keep_input_size True --max_size 720 --max_size_STCN 600
 ```
-`--model_type`: vit_b, vit_l, vit_h
-`--keep_input_size`: `True`: keep the origin image size for SAM; `False`: resize the input image to `--max_size` (save GPU memory)
-`--max_size_STCN`: the maximum input image size for STCN (don't be too large) 
 
-### 3. Specify the video and save folds
-Click 'Video Directory' and 'Save Directory'.
-The folds containing videos should be structured like this:
+Annotate the first frame with SAM, select objects with `Ctrl` + left-click, add
+them to memory, and use **Propagate** on subsequent frames.
+
+| Shortcut | Video action |
+| --- | --- |
+| `N` | Next frame |
+| `B` | Previous frame |
+| `E` | Edit mode |
+| `A` | Accept proposal |
+| `R` | Reject proposal |
+| `D` | Delete |
+| `S` | Save |
+| `Space` | Propagate |
+| `1`–`3` | Select a mask proposal |
+
+## Platform notes
+
+### Windows
+
+- Use a current graphics driver and the matching PyTorch build for CUDA.
+- PowerShell may require permission to activate a virtual environment. See
+  Microsoft's documentation for `Set-ExecutionPolicy` if activation is blocked.
+- The application also runs on CPU when CUDA is unavailable.
+
+### macOS
+
+- Apple Silicon systems use PyTorch's MPS backend when it is available.
+- The application falls back to CPU if MPS is unavailable.
+
+### Linux: Qt `xcb` plugin error
+
+This project uses `opencv-python-headless` because the GUI is provided by
+PyQt5. The headless OpenCV package avoids a conflict between OpenCV's bundled
+Qt plugins and PyQt5's `xcb` plugin.
+
+Older versions of this project also installed `metaseg`, which depends on the
+GUI-enabled OpenCV package. When updating an existing environment, remove that
+unused dependency and both OpenCV variants before reinstalling:
+
+```bash
+python -m pip uninstall -y metaseg opencv-python opencv-python-headless
+python -m pip install -r requirements.txt
 ```
--| video_fold
-    -| video1
-        -| 00000.jpg
-        -| 00001.jpg
-        ...
-    -| video2
-        -| 00000.jpg
-        -| 00001.jpg     
-    ...
+
+As a temporary workaround without reinstalling, point Qt to PyQt5's plugins:
+
+```bash
+export QT_PLUGIN_PATH="$(python -c 'import PyQt5, pathlib; print(pathlib.Path(PyQt5.__file__).parent / "Qt5" / "plugins")')"
 ```
-### 3. Load STCN and SAM
-Click 'Load STCN' and 'Load SAM'.
 
-### 4. Video Annotating Functions
-(a) Finish the annotations of the first frame with SAM
+If `xcb` still fails after using the headless OpenCV package, install the Qt/XCB
+system libraries supplied by your Linux distribution.
 
-(b) Press and hold `left control`, then press `left mouse button` to select the objects you want to track (should be highlighted by colors)
+## Project history and acknowledgement
 
-(c) Click `add object to memory` to initialize the tracklets
+This repository is based on
+[haochenheheda/segment-anything-annotator](https://github.com/haochenheheda/segment-anything-annotator).
+It builds on
+[Meta Segment Anything](https://github.com/facebookresearch/segment-anything),
+[Labelme](https://github.com/wkentaro/labelme), and
+[STCN](https://github.com/hkchengrex/STCN).
 
-(d) move to next frame, and click `Propagate` to obtain tracked masks on new frame. (the results will be automatically saved when you change frames)
-
-(e) if the propagated masks are not good enough, press 'e' to enter Edit mode, then you could manually correct the masks. You could also use `Add as key frame` to add a certain frame as reference to improve the propagation stability.
-
-ShortCuts: `b`: `last frame`, `n`: `next frame`, `e`: `edit model`, `a`: `accept proposal`, `r`: `reject proposal`, `d`: `delete`, `s`: `save`, `space`: `propagate`
-
-
-
-## To Do
-- [ ] CLIP for Category Proposal
-- [x] STCN for Video Dataset Annotation
-- [ ] Fix bugs and optimize the UI
-- [ ] Annotation Files -> Labelme Format/COCO Format/Youtube-VIS Format
-
-## Acknowledgement 
-This repo is built on [SAM](https://github.com/facebookresearch/segment-anything) and [Labelme]().
-
-
+See [LICENSE](LICENSE) for licensing information.
