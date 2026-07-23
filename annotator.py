@@ -149,8 +149,10 @@ class MainWindow(QMainWindow):
         self.current_img_data = ''
 
         self.button_next = QPushButton('Next Image', self)
+        self.button_next.setShortcut('PgDown')
         self.button_next.clicked.connect(self.clickButtonNext)
         self.button_last = QPushButton('Last Image', self)
+        self.button_last.setShortcut('PgUp')
         self.button_last.clicked.connect(self.clickButtonLast)
         self.button_jump = QPushButton('Jump', self)
         self.button_jump.setShortcut('J')
@@ -295,7 +297,7 @@ class MainWindow(QMainWindow):
         imageDirectory = action(
             self.tr("Image Directory"),
             lambda: self.clickFileChoose(),
-            'None',
+            'Shift+I',
             "objects",
             self.tr("Image Directory"),
             enabled=True,
@@ -328,7 +330,7 @@ class MainWindow(QMainWindow):
         saveDirectory = action(
             self.tr("Save Directory"),
             lambda: self.clickSaveChoose(),
-            'None',
+            'Shift+L',
             "objects",
             self.tr("Save Directory"),
             enabled=True,
@@ -337,7 +339,7 @@ class MainWindow(QMainWindow):
         createMode = action(
             self.tr("Manual Polygons"),
             lambda: self.toggleDrawMode(False, createMode="polygon"),
-            'Ctrl+W',
+            ['N', 'Ctrl+W'],
             "objects",
             self.tr("Start drawing polygons"),
             enabled=True,
@@ -345,7 +347,7 @@ class MainWindow(QMainWindow):
         createPointMode = action(
             self.tr("Point Prompt"),
             lambda: self.toggleDrawMode(False, createMode="point"),
-            'None',
+            'P',
             "objects",
             self.tr("Point Prompt"),
             enabled=True,
@@ -353,7 +355,7 @@ class MainWindow(QMainWindow):
         createRectangleMode = action(
             self.tr("Box Prompt"),
             lambda: self.toggleDrawMode(False, createMode="rectangle"),
-            'None',
+            'B',
             "objects",
             self.tr("Box Prompt"),
             enabled=True,
@@ -361,7 +363,7 @@ class MainWindow(QMainWindow):
         createCircleMode = action(
             self.tr("Circle Prompt"),
             lambda: self.toggleDrawMode(False, createMode="circle"),
-            'None',
+            'C',
             "objects",
             self.tr("Circle Prompt"),
             enabled=True,
