@@ -20,6 +20,24 @@ DEFAULT_HVERTEX_FILL_COLOR = QtGui.QColor(255, 255, 255, 255)  # hovering
 DEFAULT_Negative_FILL_COLOR = QtGui.QColor(255, 0, 0)  # hovering
 
 
+def _distance_to_line(point, line):
+    """Return the distance to a line segment without NumPy's 2-D cross()."""
+    p1, p2 = line
+    dx = p2.x() - p1.x()
+    dy = p2.y() - p1.y()
+    length_squared = dx * dx + dy * dy
+    if length_squared == 0:
+        return math.hypot(point.x() - p1.x(), point.y() - p1.y())
+
+    projection = (
+        (point.x() - p1.x()) * dx + (point.y() - p1.y()) * dy
+    ) / length_squared
+    projection = max(0.0, min(1.0, projection))
+    nearest_x = p1.x() + projection * dx
+    nearest_y = p1.y() + projection * dy
+    return math.hypot(point.x() - nearest_x, point.y() - nearest_y)
+
+
 class Shape(object):
 
     # Render handles as squares
@@ -253,7 +271,7 @@ class Shape(object):
         post_i = None
         for i in range(len(self.points)):
             line = [self.points[i - 1], self.points[i]]
-            dist = labelme.utils.distancetoline(point, line)
+            dist = _distance_to_line(point, line)
             if dist <= epsilon and dist < min_distance:
                 min_distance = dist
                 post_i = i
