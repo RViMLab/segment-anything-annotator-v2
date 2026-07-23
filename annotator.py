@@ -80,6 +80,10 @@ class MainWindow(QMainWindow):
         self.subtract_shape = None
         self.merge_mode = False
         self.merge_shape = None
+        self.review_config = None
+        self.review_validation_report = None
+        self.review_pairs = []
+        self.review_pair_by_image = {}
 
         self.predictor = None
 
@@ -674,6 +678,31 @@ class MainWindow(QMainWindow):
         self.canvas.actions = self.actions
         # preview state (no interactive reduce slider)
 
+    def configureReviewSession(self, validation_report):
+        self.review_validation_report = validation_report
+        self.review_config = validation_report.config
+        self.review_pairs = list(validation_report.pairs)
+        self.review_pair_by_image = {
+            osp.normcase(osp.abspath(str(pair.image_path))): pair
+            for pair in self.review_pairs
+        }
+        self.setProperty("reviewMode", True)
+        self.setWindowTitle(
+            "segment-anything-annotator — Review session "
+            f"({self.review_config.reviewer_id})"
+        )
+        self.actions.imageDirectory.setEnabled(False)
+        self.actions.saveDirectory.setEnabled(False)
+        self.current_output_dir = str(self.review_config.output_directory)
+        self.img_list = [str(pair.image_path) for pair in self.review_pairs]
+        self.img_len = len(self.img_list)
+        self.current_img_index = 0
+        self.img_progress_bar.setMinimum(0)
+        self.img_progress_bar.setMaximum(max(0, self.img_len - 1))
+        if self.img_list:
+            self.current_img = self.img_list[0]
+            self.loadImg()
+
 
     def saveFileAs(self, _value=False):
         assert not self.image.isNull(), "cannot save empty image"
@@ -694,6 +723,8 @@ class MainWindow(QMainWindow):
         self._saveFile(self.current_output_filename)
 
     def _saveFile(self, filename):
+        if filename and self.review_config is not None:
+            os.makedirs(osp.dirname(filename), exist_ok=True)
         if filename and self.saveLabels(filename):
             self.setClean()
 
@@ -893,16 +924,36 @@ class MainWindow(QMainWindow):
         self.canvas.loadPixmap(pixmap)
         self.img_progress_bar.setValue(self.current_img_index)
 
-        img_name = os.path.basename(self.current_img)[:-4]
-        self.current_output_filename = osp.join(self.current_output_dir, img_name + '.json')
+        review_pair = self.review_pair_by_image.get(
+            osp.normcase(osp.abspath(self.current_img))
+        )
+        if review_pair is not None:
+            relative_annotation = review_pair.annotation_path.relative_to(
+                self.review_config.annotation_directory
+            )
+            self.current_output_filename = str(
+                self.review_config.output_directory / relative_annotation
+            )
+            annotation_to_load = (
+                self.current_output_filename
+                if osp.isfile(self.current_output_filename)
+                else str(review_pair.annotation_path)
+            )
+        else:
+            img_name = os.path.basename(self.current_img)[:-4]
+            self.current_output_filename = osp.join(
+                self.current_output_dir,
+                img_name + '.json',
+            )
+            annotation_to_load = self.current_output_filename
         # show filename (including extension) centered above the image area
         try:
             self.img_name.setText(os.path.basename(self.current_img))
         except Exception:
             self.img_name.setText("")
         self.labelList.clear()
-        if os.path.isfile(self.current_output_filename):
-            self.loadAnno(self.current_output_filename)
+        if os.path.isfile(annotation_to_load):
+            self.loadAnno(annotation_to_load)
         self.image_encoded_flag = False
         self.current_img_data = LabelFile.load_image_file(self.current_img)
 
@@ -1972,16 +2023,65 @@ def get_parser():
     parser.add_argument(
         "--max_size",
         default=720,
-    )   
+    )
+    parser.add_argument(
+        "--review",
+        action="store_true",
+        help="Configure and start an annotation review session.",
+    )
+    parser.add_argument(
+        "--reviewer-id",
+        default="",
+        help="Initial reviewer identifier shown in the review dialog.",
+    )
+    parser.add_argument(
+        "--reviewer-role",
+        default="",
+        help="Initial reviewer role shown in the review dialog.",
+    )
+    parser.add_argument(
+        "--review-images",
+        default="",
+        help="Initial image directory shown in the review dialog.",
+    )
+    parser.add_argument(
+        "--review-annotations",
+        default="",
+        help="Initial original-annotation directory shown in the review dialog.",
+    )
+    parser.add_argument(
+        "--review-output",
+        default="",
+        help="Initial reviewed-annotation output shown in the review dialog.",
+    )
     return parser
 
 if __name__ == '__main__':
-    parser = get_parser()
-    global_h, global_w = [int(i) for i in parser.parse_args().app_resolution.split(',')]
-    model_type = parser.parse_args().model_type
-    keep_input_size = parser.parse_args().keep_input_size
-    max_size = parser.parse_args().max_size
+    args = get_parser().parse_args()
+    global_h, global_w = [
+        int(i) for i in args.app_resolution.split(',')
+    ]
     app = QApplication(sys.argv)
-    main = MainWindow(global_h=global_h, global_w=global_w, model_type=model_type, keep_input_size=keep_input_size, max_size=max_size)
+    main = MainWindow(
+        global_h=global_h,
+        global_w=global_w,
+        model_type=args.model_type,
+        keep_input_size=args.keep_input_size,
+        max_size=args.max_size,
+    )
+    if args.review:
+        from review.dialog import ReviewSessionDialog
+
+        review_dialog = ReviewSessionDialog(main)
+        review_dialog.reviewer_id_edit.setText(args.reviewer_id)
+        review_dialog.reviewer_role_edit.setText(args.reviewer_role)
+        review_dialog.image_directory_edit.setText(args.review_images)
+        review_dialog.annotation_directory_edit.setText(
+            args.review_annotations
+        )
+        review_dialog.output_directory_edit.setText(args.review_output)
+        if review_dialog.exec_() != QtWidgets.QDialog.Accepted:
+            sys.exit(0)
+        main.configureReviewSession(review_dialog.validation_report)
     main.show()
     sys.exit(app.exec_())
