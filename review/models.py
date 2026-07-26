@@ -111,6 +111,7 @@ class ValidationReport:
     config: ReviewConfig
     image_count: int = 0
     annotation_count: int = 0
+    images: List[Path] = field(default_factory=list)
     pairs: List[ReviewPair] = field(default_factory=list)
     issues: List[ValidationIssue] = field(default_factory=list)
 
