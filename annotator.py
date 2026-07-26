@@ -13,6 +13,8 @@ import numpy as np
 import tempfile
 import torch
 import base64
+import shutil
+from dataclasses import replace
 
 from PyQt5.QtWidgets import QWidget, QApplication, QMainWindow, QApplication, QPushButton, QLabel, QFileDialog, QProgressBar, QComboBox, QScrollArea, QDockWidget, QMessageBox
 from PyQt5.QtGui import QPixmap, QIcon, QImage
@@ -88,7 +90,12 @@ class MainWindow(QMainWindow):
         self.review_session = None
         self.review_items = []
         self.review_item_by_key = {}
+        self.review_item_by_image = {}
+        self.review_target_image_indexes = []
         self.review_session_was_resumed = False
+        self.review_panel = None
+        self.review_tabs = None
+        self.current_review_item = None
 
         self.predictor = None
 
@@ -157,11 +164,19 @@ class MainWindow(QMainWindow):
         self.current_img_data = ''
 
         self.button_next = QPushButton('Next Image', self)
-        self.button_next.setShortcut('PgDown')
         self.button_next.clicked.connect(self.clickButtonNext)
         self.button_last = QPushButton('Last Image', self)
-        self.button_last.setShortcut('PgUp')
         self.button_last.clicked.connect(self.clickButtonLast)
+        self.next_image_shortcut = QtWidgets.QShortcut(
+            QtGui.QKeySequence("PgDown"), self
+        )
+        self.next_image_shortcut.setContext(Qt.ApplicationShortcut)
+        self.next_image_shortcut.activated.connect(self.clickButtonNext)
+        self.previous_image_shortcut = QtWidgets.QShortcut(
+            QtGui.QKeySequence("PgUp"), self
+        )
+        self.previous_image_shortcut.setContext(Qt.ApplicationShortcut)
+        self.previous_image_shortcut.activated.connect(self.clickButtonLast)
         self.button_jump = QPushButton('Jump', self)
         self.button_jump.setShortcut('J')
         self.button_jump.clicked.connect(self.clickButtonJump)
@@ -615,13 +630,13 @@ class MainWindow(QMainWindow):
         visibility_layout.addWidget(self.button_hide_all)
         visibility_layout.addWidget(self.button_show_all)
 
-        labels_widget = QWidget()
-        labels_layout = QtWidgets.QVBoxLayout(labels_widget)
+        self.labels_widget = QWidget()
+        labels_layout = QtWidgets.QVBoxLayout(self.labels_widget)
         labels_layout.setContentsMargins(0, 0, 0, 0)
         labels_layout.setSpacing(0)
         labels_layout.addWidget(visibility_widget)
         labels_layout.addWidget(self.labelList)
-        self.shape_dock.setWidget(labels_widget)
+        self.shape_dock.setWidget(self.labels_widget)
         self.addAction(toggleAll)
 
         # Custom context menu for the canvas widget:
@@ -682,8 +697,10 @@ class MainWindow(QMainWindow):
         self.zoomWidget.valueChanged.connect(self.paintCanvas)
         self.canvas.actions = self.actions
         # preview state (no interactive reduce slider)
+        self._updateResponsiveLayout(self.width(), self.height())
 
     def configureReviewSession(self, validation_report):
+        from review.panel import ReviewPanel
         from review.storage import ReviewStorage
 
         self.review_validation_report = validation_report
@@ -701,6 +718,10 @@ class MainWindow(QMainWindow):
         self.review_item_by_key = {
             item.relative_key: item for item in self.review_items
         }
+        self.review_item_by_image = {
+            osp.normcase(osp.abspath(str(item.image_path))): item
+            for item in self.review_items
+        }
         self.review_pair_by_image = {
             osp.normcase(osp.abspath(str(pair.image_path))): pair
             for pair in self.review_pairs
@@ -715,18 +736,286 @@ class MainWindow(QMainWindow):
         )
         self.actions.imageDirectory.setEnabled(False)
         self.actions.saveDirectory.setEnabled(False)
+        self.button_last.setText(self.tr("Last Image"))
+        self.button_next.setText(self.tr("Next Image"))
+        self.button_last.setToolTip(
+            self.tr("Previous image, including context images (PgUp)")
+        )
+        self.button_next.setToolTip(
+            self.tr("Next image, including context images (PgDown)")
+        )
+        self.review_panel = ReviewPanel(self)
+        self.review_panel.set_reviewer(
+            self.review_config.reviewer_id,
+            self.review_config.reviewer_role,
+        )
+        self.review_panel.decisionRequested.connect(self.recordReviewDecision)
+        self.review_panel.previousRequested.connect(
+            lambda: self.navigateReviewTarget(-1)
+        )
+        self.review_panel.nextRequested.connect(
+            lambda: self.navigateReviewTarget(1)
+        )
+        self.review_panel.finishRequested.connect(self.finishReviewSession)
+        self.review_panel.resetTimerRequested.connect(self.resetReviewTimer)
+        # The annotator uses a fixed-position canvas layout, so a native Qt
+        # dock would cover those widgets. Reuse the existing right-hand panel
+        # and expose review controls and polygon labels as tabs instead.
+        self.review_tabs = QtWidgets.QTabWidget(self.shape_dock)
+        self.review_tabs.addTab(self.review_panel, self.tr("Review"))
+        self.review_tabs.addTab(self.labels_widget, self.tr("Polygons"))
+        self.shape_dock.setWindowTitle(self.tr("Review and Polygon Labels"))
+        self.shape_dock.setWidget(self.review_tabs)
+        self._updateResponsiveLayout(self.width(), self.height())
         self.current_output_dir = str(self.review_config.output_directory)
-        self.img_list = [str(pair.image_path) for pair in self.review_pairs]
+        self.img_list = [
+            str(path) for path in self.review_validation_report.images
+        ]
         self.img_len = len(self.img_list)
+        image_index_by_path = {
+            osp.normcase(osp.abspath(path)): index
+            for index, path in enumerate(self.img_list)
+        }
+        self.review_target_image_indexes = [
+            image_index_by_path[osp.normcase(osp.abspath(str(item.image_path)))]
+            for item in self.review_items
+        ]
         resume_item = self.review_storage.get_resume_item(
             self.review_session.session_id
         )
-        self.current_img_index = resume_item.ordinal if resume_item else 0
+        resume_path = str(resume_item.image_path) if resume_item else self.img_list[0]
+        self.current_img_index = image_index_by_path[
+            osp.normcase(osp.abspath(resume_path))
+        ]
         self.img_progress_bar.setMinimum(0)
         self.img_progress_bar.setMaximum(max(0, self.img_len - 1))
         if self.img_list:
             self.current_img = self.img_list[self.current_img_index]
             self.loadImg()
+            self._activateReviewItem()
+
+    def _reviewedCount(self):
+        from review import ReviewStatus
+
+        completed = {
+            ReviewStatus.NO_CHANGE,
+            ReviewStatus.MINOR_CORRECTION,
+            ReviewStatus.MAJOR_CORRECTION,
+            ReviewStatus.UNABLE_TO_REVIEW,
+        }
+        return sum(item.status in completed for item in self.review_items)
+
+    def _activateReviewItem(self):
+        from review import ReviewStatus, with_item_status
+
+        if self.review_storage is None or not self.review_items:
+            return
+        item = self.review_item_by_image.get(
+            osp.normcase(osp.abspath(self.current_img))
+        )
+        if item is None:
+            self.current_review_item = None
+            self.review_panel.set_context(
+                self.current_img_index + 1,
+                self.img_len,
+                self._reviewedCount(),
+                len(self.review_items),
+            )
+            self.setClean()
+            return
+        if item.status == ReviewStatus.UNREVIEWED:
+            item = self.review_storage.save_item(
+                with_item_status(item, ReviewStatus.IN_PROGRESS)
+            )
+            self._replaceReviewItem(item)
+        self.current_review_item = item
+        self.review_panel.set_item(
+            item,
+            self._reviewedCount(),
+            len(self.review_items),
+        )
+
+    def _replaceReviewItem(self, saved_item):
+        self.review_items[saved_item.ordinal] = saved_item
+        self.review_item_by_key[saved_item.relative_key] = saved_item
+        self.review_item_by_image[
+            osp.normcase(osp.abspath(str(saved_item.image_path)))
+        ] = saved_item
+        if (
+            self.current_review_item is not None
+            and self.current_review_item.item_id == saved_item.item_id
+        ):
+            self.current_review_item = saved_item
+
+    def _persistCurrentReviewState(self):
+        if self.current_review_item is None or self.review_panel is None:
+            return
+        saved = self.review_storage.save_item(
+            replace(
+                self.current_review_item,
+                active_review_seconds=self.review_panel.elapsed_seconds(),
+                reviewer_notes=self.review_panel.notes_edit.toPlainText().strip(),
+                problem_status=self.review_panel.problem_combo.currentText().strip(),
+            )
+        )
+        self._replaceReviewItem(saved)
+        return saved
+
+    def navigateReviewTarget(self, offset):
+        if not self.review_target_image_indexes:
+            return
+        if self.current_review_item is not None and self.actions.save.isEnabled():
+            self.saveFile()
+        self._persistCurrentReviewState()
+        if offset > 0:
+            candidates = [
+                index for index in self.review_target_image_indexes
+                if index > self.current_img_index
+            ]
+            new_index = candidates[0] if candidates else None
+        else:
+            candidates = [
+                index for index in self.review_target_image_indexes
+                if index < self.current_img_index
+            ]
+            new_index = candidates[-1] if candidates else None
+        if new_index is None:
+            return
+        self.review_panel.stop_timer()
+        self.current_img_index = new_index
+        self.current_img = self.img_list[new_index]
+        self.loadImg()
+        self._activateReviewItem()
+
+    def navigateImage(self, offset):
+        if not self.img_list:
+            return
+        if self.current_review_item is not None and self.actions.save.isEnabled():
+            self.saveFile()
+        self._persistCurrentReviewState()
+        new_index = self.current_img_index + offset
+        if not 0 <= new_index < self.img_len:
+            return
+        if self.review_panel is not None:
+            self.review_panel.stop_timer()
+        self.current_img_index = new_index
+        self.current_img = self.img_list[new_index]
+        self.loadImg()
+        self._activateReviewItem()
+
+    def resetReviewTimer(self):
+        if self.current_review_item is None:
+            return
+        reply = QMessageBox.question(
+            self,
+            self.tr("Reset review timer"),
+            self.tr("Reset the active review time for this target to zero?"),
+            QMessageBox.Yes | QMessageBox.Cancel,
+        )
+        if reply == QMessageBox.Yes:
+            self.review_panel.reset_timer()
+
+    def recordReviewDecision(self, status):
+        from review import ReviewStatus, with_item_status
+
+        if self.current_review_item is None:
+            return
+        if status == ReviewStatus.NO_CHANGE:
+            if self.actions.save.isEnabled():
+                reply = QMessageBox.question(
+                    self,
+                    self.tr("Unsaved corrections"),
+                    self.tr(
+                        "This annotation has unsaved edits. Record it as "
+                        "No change and discard those edits?"
+                    ),
+                    QMessageBox.Yes | QMessageBox.Cancel,
+                )
+                if reply != QMessageBox.Yes:
+                    return
+            os.makedirs(osp.dirname(self.current_output_filename), exist_ok=True)
+            shutil.copy2(
+                str(self.current_review_item.original_annotation_path),
+                self.current_output_filename,
+            )
+            self.loadImg()
+            self.setClean()
+        elif status != ReviewStatus.UNABLE_TO_REVIEW:
+            # Every successful decision creates a reviewed JSON, including
+            # No change, so the original annotation remains untouched.
+            self.saveFile()
+
+        current = self._persistCurrentReviewState()
+        current = with_item_status(current, status)
+        current = self.review_storage.save_item(current)
+        self._replaceReviewItem(current)
+        self.review_panel.set_progress(
+            self._reviewedCount(), len(self.review_items)
+        )
+
+        incomplete = {
+            ReviewStatus.UNREVIEWED,
+            ReviewStatus.IN_PROGRESS,
+        }
+        candidates = self.review_items[self.current_img_index + 1:]
+        candidates += self.review_items[:self.current_img_index]
+        next_item = next(
+            (item for item in candidates if item.status in incomplete), None
+        )
+        if next_item is not None:
+            self.review_panel.stop_timer()
+            next_index = self.review_target_image_indexes[next_item.ordinal]
+            self.current_img_index = next_index
+            self.current_img = self.img_list[next_index]
+            self.loadImg()
+            self._activateReviewItem()
+        else:
+            self.review_panel.stop_timer()
+            QMessageBox.information(
+                self,
+                self.tr("Review decisions complete"),
+                self.tr(
+                    "Every review target has a decision. Use Finish review "
+                    "session when you are ready to complete the session."
+                ),
+            )
+
+    def finishReviewSession(self):
+        from review import ReviewSessionStatus
+
+        self._persistCurrentReviewState()
+        reviewed = self._reviewedCount()
+        total = len(self.review_items)
+        message = self.tr(
+            "Mark this review session as complete?\n\n"
+            f"Reviewed: {reviewed} / {total}\n"
+            "A completed session will not be resumed next time."
+        )
+        if reviewed < total:
+            message += self.tr("\n\nSome targets do not have a decision.")
+        reply = QMessageBox.question(
+            self,
+            self.tr("Finish review session"),
+            message,
+            QMessageBox.Yes | QMessageBox.Cancel,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        self.review_panel.stop_timer()
+        self.review_session = self.review_storage.set_session_status(
+            self.review_session.session_id,
+            ReviewSessionStatus.COMPLETED,
+        )
+        self.review_panel.setEnabled(False)
+        self.setWindowTitle(
+            "segment-anything-annotator — Review session completed "
+            f"({self.review_config.reviewer_id})"
+        )
+        QMessageBox.information(
+            self,
+            self.tr("Review session completed"),
+            self.tr("The review session has been marked as complete."),
+        )
 
 
     def saveFileAs(self, _value=False):
@@ -860,6 +1149,9 @@ class MainWindow(QMainWindow):
         self.canvas.loadShapes([item.shape() for item in self.labelList])
 
     def clickButtonNext(self):
+        if self.review_storage is not None:
+            self.navigateImage(1)
+            return
         if self.actions.save.isEnabled():
             self.saveFile()
         if self.current_img_index < self.img_len - 1:
@@ -868,6 +1160,9 @@ class MainWindow(QMainWindow):
             self.loadImg()
 
     def clickButtonLast(self):
+        if self.review_storage is not None:
+            self.navigateImage(-1)
+            return
         if self.actions.save.isEnabled():
             self.saveFile()
         if self.current_img_index > 0:
@@ -912,9 +1207,14 @@ class MainWindow(QMainWindow):
                     return
             except Exception:
                 return
+            if self.review_storage is not None:
+                self._persistCurrentReviewState()
+                self.review_panel.stop_timer()
             self.current_img_index = int(idx)
             self.current_img = self.img_list[self.current_img_index]
             self.loadImg()
+            if self.review_storage is not None:
+                self._activateReviewItem()
 
 
     def choose_proposal1(self):
@@ -964,6 +1264,10 @@ class MainWindow(QMainWindow):
                 if osp.isfile(self.current_output_filename)
                 else str(review_pair.annotation_path)
             )
+        elif self.review_config is not None:
+            # Context images are view-only and never create empty review JSON.
+            self.current_output_filename = ""
+            annotation_to_load = ""
         else:
             img_name = os.path.basename(self.current_img)[:-4]
             self.current_output_filename = osp.join(
@@ -1456,6 +1760,154 @@ class MainWindow(QMainWindow):
         # if self.filename is not None:
         #     title = "{} - {}*".format(title, self.filename)
         # self.setWindowTitle(title)
+
+    def closeEvent(self, event):
+        """Persist review notes and active time without completing the session."""
+        if self.review_storage is not None and self.current_review_item is not None:
+            try:
+                self._persistCurrentReviewState()
+                self.review_panel.stop_timer()
+            except Exception as error:
+                QMessageBox.critical(
+                    self,
+                    self.tr("Could not save review progress"),
+                    self.tr(
+                        "Review progress could not be saved. The window will "
+                        f"remain open.\n\n{error}"
+                    ),
+                )
+                event.ignore()
+                return
+        event.accept()
+
+    def resizeEvent(self, event):
+        """Keep fixed-layout regions separated as the window is resized."""
+        super().resizeEvent(event)
+        self._updateResponsiveLayout(event.size().width(), event.size().height())
+
+    def _updateResponsiveLayout(self, window_width, window_height):
+        required = (
+            "shape_dock",
+            "contrast_slider",
+            "button_bc_reset",
+            "scrollArea",
+            "img_name",
+            "img_progress_bar",
+            "button_proposal_list",
+        )
+        if not all(hasattr(self, name) for name in required):
+            return
+
+        margin = max(12, int(window_width * 0.008))
+        slider_widgets = (
+            self.brightness_label,
+            self.brightness_value_label,
+            self.brightness_slider,
+            self.contrast_label,
+            self.contrast_value_label,
+            self.contrast_slider,
+            self.button_bc_reset,
+        )
+        if not hasattr(self, "_responsive_layout_metrics"):
+            slider_left = min(widget.x() for widget in slider_widgets)
+            slider_right = max(
+                widget.geometry().right() for widget in slider_widgets
+            )
+            self._responsive_layout_metrics = {
+                "minimum_panel_left": self.shape_dock.x(),
+                "slider_width": slider_right - slider_left + 1,
+                "slider_offsets": {
+                    widget: widget.x() - slider_left
+                    for widget in slider_widgets
+                },
+            }
+
+        metrics = self._responsive_layout_metrics
+        preferred_width = min(380, max(300, int(window_width * 0.2)))
+        panel_left = max(
+            metrics["minimum_panel_left"],
+            window_width - preferred_width - margin,
+        )
+        panel_width = max(260, window_width - panel_left - margin)
+        panel_top = self.scrollArea.y()
+
+        # Keep the B/C controls a fixed-size unit immediately beside the
+        # right panel, and allow the image viewport to consume the space that
+        # opens to their left.
+        slider_right = panel_left - margin
+        slider_left = slider_right - metrics["slider_width"]
+        for widget in slider_widgets:
+            widget.move(
+                slider_left + metrics["slider_offsets"][widget],
+                widget.y(),
+            )
+        image_right = slider_left - margin
+        image_width = max(320, image_right - self.scrollArea.x())
+        self.scrollArea.resize(image_width, self.scrollArea.height())
+        self.img_name.resize(image_width, self.img_name.height())
+
+        proposal_height = min(140, max(105, int(window_height * 0.14)))
+        bottom_top = window_height - proposal_height - margin
+        panel_bottom = bottom_top - margin
+        panel_height = max(300, panel_bottom - panel_top)
+        self.shape_dock.setGeometry(
+            panel_left,
+            panel_top,
+            panel_width,
+            panel_height,
+        )
+
+        # Let the image viewport consume additional vertical space while
+        # retaining a safe gap above the bottom controls.
+        image_bottom = bottom_top - margin
+        image_height = max(300, image_bottom - self.scrollArea.y())
+        self.scrollArea.resize(self.scrollArea.width(), image_height)
+
+        # The lower-left progress/navigation region and the four proposal
+        # cards share a bottom edge and never extend beneath the side panel.
+        proposal_left = max(500, int(min(window_width, 1600) * 0.33))
+        proposal_right = panel_left - margin
+        proposal_gap = 4
+        proposal_width = max(
+            80,
+            int(
+                (proposal_right - proposal_left - (3 * proposal_gap)) / 4
+            ),
+        )
+        for index, proposal in enumerate(self.button_proposal_list):
+            proposal.setGeometry(
+                proposal_left + index * (proposal_width + proposal_gap),
+                bottom_top,
+                proposal_width,
+                proposal_height,
+            )
+
+        navigation_width = max(300, proposal_left - margin - 12)
+        progress_height = 40
+        self.img_progress_bar.setGeometry(
+            12,
+            bottom_top,
+            navigation_width,
+            progress_height,
+        )
+        nav_top = bottom_top + progress_height + 10
+        nav_gap = 8
+        jump_width = max(70, int(navigation_width * 0.18))
+        side_width = int((navigation_width - jump_width - 2 * nav_gap) / 2)
+        self.button_last.setGeometry(12, nav_top, side_width, 38)
+        self.button_jump.setGeometry(
+            12 + side_width + nav_gap,
+            nav_top,
+            jump_width,
+            38,
+        )
+        self.button_next.setGeometry(
+            12 + side_width + jump_width + 2 * nav_gap,
+            nav_top,
+            side_width,
+            38,
+        )
+        self.class_on_text.move(12, nav_top + 48)
 
     # React to canvas signals.
     def shapeSelectionChanged(self, selected_shapes):
@@ -2097,7 +2549,10 @@ if __name__ == '__main__':
     if args.review:
         from review.dialog import ReviewSessionDialog
 
-        review_dialog = ReviewSessionDialog(main)
+        # Keep the configuration dialog independent of the still-hidden main
+        # window. On Windows, a modal child of a hidden window can itself open
+        # behind other applications and make the process appear unresponsive.
+        review_dialog = ReviewSessionDialog()
         review_dialog.reviewer_id_edit.setText(args.reviewer_id)
         review_dialog.reviewer_role_edit.setText(args.reviewer_role)
         review_dialog.image_directory_edit.setText(args.review_images)

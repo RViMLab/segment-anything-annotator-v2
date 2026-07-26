@@ -310,6 +310,7 @@ def validate_review_config(config: ReviewConfig) -> ValidationReport:
     report.image_count = len(images) + sum(
         len(paths) for paths in duplicate_images.values()
     )
+    report.images = [images[key] for key in sorted(images)]
     report.annotation_count = len(annotations) + sum(
         len(paths) for paths in duplicate_annotations.values()
     )

@@ -78,6 +78,14 @@ class ReviewValidationTests(unittest.TestCase):
         self.assertTrue(report.is_valid)
         self.assertIn("annotation_missing", codes)
         self.assertIn("orphan_annotation", codes)
+        self.assertEqual(
+            [path.name for path in report.images],
+            ["matched.png", "missing.png"],
+        )
+        self.assertEqual(
+            [pair.relative_key for pair in report.pairs],
+            ["matched"],
+        )
 
     def test_duplicate_image_keys_are_errors(self):
         self.write_image("duplicate.png")
