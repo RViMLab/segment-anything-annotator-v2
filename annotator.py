@@ -25,6 +25,7 @@ from qtpy import QtGui, QtWidgets
 from canvas import Canvas
 import utils
 from utils.download_model import download_model
+from utils.app_icon import configure_qt_application, configure_windows_app_id
 
 from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelDialog, LabelListWidget, LabelListWidgetItem, ZoomWidget
 from labelme import PY2
@@ -2538,7 +2539,9 @@ if __name__ == '__main__':
     global_h, global_w = [
         int(i) for i in args.app_resolution.split(',')
     ]
+    configure_windows_app_id()
     app = QApplication(sys.argv)
+    configure_qt_application(app)
     main = MainWindow(
         global_h=global_h,
         global_w=global_w,
