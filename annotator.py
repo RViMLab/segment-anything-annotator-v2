@@ -84,6 +84,11 @@ class MainWindow(QMainWindow):
         self.review_validation_report = None
         self.review_pairs = []
         self.review_pair_by_image = {}
+        self.review_storage = None
+        self.review_session = None
+        self.review_items = []
+        self.review_item_by_key = {}
+        self.review_session_was_resumed = False
 
         self.predictor = None
 
@@ -679,28 +684,48 @@ class MainWindow(QMainWindow):
         # preview state (no interactive reduce slider)
 
     def configureReviewSession(self, validation_report):
+        from review.storage import ReviewStorage
+
         self.review_validation_report = validation_report
         self.review_config = validation_report.config
         self.review_pairs = list(validation_report.pairs)
+        self.review_storage = ReviewStorage.for_config(self.review_config)
+        (
+            self.review_session,
+            self.review_items,
+            self.review_session_was_resumed,
+        ) = self.review_storage.open_or_create_session(
+            self.review_config,
+            self.review_pairs,
+        )
+        self.review_item_by_key = {
+            item.relative_key: item for item in self.review_items
+        }
         self.review_pair_by_image = {
             osp.normcase(osp.abspath(str(pair.image_path))): pair
             for pair in self.review_pairs
         }
         self.setProperty("reviewMode", True)
+        session_state = (
+            "resumed" if self.review_session_was_resumed else "new"
+        )
         self.setWindowTitle(
             "segment-anything-annotator — Review session "
-            f"({self.review_config.reviewer_id})"
+            f"({self.review_config.reviewer_id}, {session_state})"
         )
         self.actions.imageDirectory.setEnabled(False)
         self.actions.saveDirectory.setEnabled(False)
         self.current_output_dir = str(self.review_config.output_directory)
         self.img_list = [str(pair.image_path) for pair in self.review_pairs]
         self.img_len = len(self.img_list)
-        self.current_img_index = 0
+        resume_item = self.review_storage.get_resume_item(
+            self.review_session.session_id
+        )
+        self.current_img_index = resume_item.ordinal if resume_item else 0
         self.img_progress_bar.setMinimum(0)
         self.img_progress_bar.setMaximum(max(0, self.img_len - 1))
         if self.img_list:
-            self.current_img = self.img_list[0]
+            self.current_img = self.img_list[self.current_img_index]
             self.loadImg()
 
 
