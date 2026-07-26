@@ -23,6 +23,7 @@ from qtpy import QtCore
 from qtpy import QtGui, QtWidgets
 from canvas import Canvas
 import utils
+from utils.app_icon import configure_qt_application, configure_windows_app_id
 from utils.download_model import download_model
 
 from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelDialog, LabelListWidget, LabelListWidgetItem, ZoomWidget
@@ -1658,7 +1659,9 @@ if __name__ == '__main__':
     keep_input_size = parser.parse_args().keep_input_size
     max_size = parser.parse_args().max_size
     max_size_STCN = parser.parse_args().max_size_STCN
+    configure_windows_app_id()
     app = QApplication(sys.argv)
+    configure_qt_application(app)
     main = MainWindow(global_h=global_h, global_w=global_w, model_type=model_type, keep_input_size=keep_input_size, max_size=max_size, max_size_STCN=max_size_STCN)
     main.show()
     sys.exit(app.exec_())
