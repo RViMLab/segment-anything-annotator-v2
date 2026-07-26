@@ -12,6 +12,7 @@ from .models import (
     ValidationSeverity,
 )
 from .validation import validate_review_config
+from .comparison import AnnotationComparison, compare_annotations
 from .storage import (
     DEFAULT_DATABASE_FILENAME,
     ReviewStorage,
@@ -20,6 +21,7 @@ from .storage import (
 
 __all__ = [
     "ReviewConfig",
+    "AnnotationComparison",
     "ReviewItemRecord",
     "ReviewPair",
     "ReviewSessionRecord",
@@ -31,5 +33,6 @@ __all__ = [
     "ValidationSeverity",
     "DEFAULT_DATABASE_FILENAME",
     "validate_review_config",
+    "compare_annotations",
     "with_item_status",
 ]
