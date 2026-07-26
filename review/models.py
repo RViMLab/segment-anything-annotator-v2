@@ -6,6 +6,20 @@ from pathlib import Path
 from typing import List, Optional
 
 
+class ReviewStatus(str, Enum):
+    UNREVIEWED = "unreviewed"
+    IN_PROGRESS = "in_progress"
+    NO_CHANGE = "no_change"
+    MINOR_CORRECTION = "minor_correction"
+    MAJOR_CORRECTION = "major_correction"
+    UNABLE_TO_REVIEW = "unable_to_review"
+
+
+class ReviewSessionStatus(str, Enum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+
+
 class ValidationSeverity(str, Enum):
     ERROR = "error"
     WARNING = "warning"
@@ -37,6 +51,47 @@ class ReviewPair:
     annotation_path: Path
     image_width: Optional[int] = None
     image_height: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class ReviewSessionRecord:
+    session_id: str
+    reviewer_id: str
+    reviewer_role: str
+    image_directory: Path
+    annotation_directory: Path
+    output_directory: Path
+    status: ReviewSessionStatus
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class ReviewItemRecord:
+    item_id: int
+    session_id: str
+    ordinal: int
+    relative_key: str
+    image_path: Path
+    original_annotation_path: Path
+    reviewed_annotation_path: Path
+    image_width: Optional[int]
+    image_height: Optional[int]
+    status: ReviewStatus
+    active_review_seconds: float
+    reviewer_notes: str
+    problem_status: str
+    source_provenance: str
+    original_json_sha256: Optional[str]
+    reviewed_json_sha256: Optional[str]
+    annotation_changed: Optional[bool]
+    geometry_changed: Optional[bool]
+    raster_mask_changed: Optional[bool]
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    created_at: str
+    updated_at: str
+    is_active: bool = True
 
 
 @dataclass(frozen=True)
