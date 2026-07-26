@@ -917,7 +917,7 @@ class MainWindow(QMainWindow):
             self.review_panel.reset_timer()
 
     def recordReviewDecision(self, status):
-        from review import ReviewStatus, with_item_status
+        from review import compare_annotations, ReviewStatus, with_item_status
 
         if self.current_review_item is None:
             return
@@ -946,7 +946,32 @@ class MainWindow(QMainWindow):
             # No change, so the original annotation remains untouched.
             self.saveFile()
 
+        reviewed_path = self.current_review_item.reviewed_annotation_path
+        try:
+            comparison = compare_annotations(
+                self.current_review_item.original_annotation_path,
+                reviewed_path if reviewed_path.is_file() else None,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            QMessageBox.critical(
+                self,
+                self.tr("Could not compare annotations"),
+                self.tr(
+                    "The review decision was not recorded because the "
+                    f"annotation comparison failed.\n\n{error}"
+                ),
+            )
+            return
+
         current = self._persistCurrentReviewState()
+        current = replace(
+            current,
+            original_json_sha256=comparison.original_json_sha256,
+            reviewed_json_sha256=comparison.reviewed_json_sha256,
+            annotation_changed=comparison.annotation_changed,
+            geometry_changed=comparison.geometry_changed,
+            raster_mask_changed=comparison.raster_mask_changed,
+        )
         current = with_item_status(current, status)
         current = self.review_storage.save_item(current)
         self._replaceReviewItem(current)
@@ -958,8 +983,9 @@ class MainWindow(QMainWindow):
             ReviewStatus.UNREVIEWED,
             ReviewStatus.IN_PROGRESS,
         }
-        candidates = self.review_items[self.current_img_index + 1:]
-        candidates += self.review_items[:self.current_img_index]
+        current_ordinal = current.ordinal
+        candidates = self.review_items[current_ordinal + 1:]
+        candidates += self.review_items[:current_ordinal]
         next_item = next(
             (item for item in candidates if item.status in incomplete), None
         )
