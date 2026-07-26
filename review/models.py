@@ -20,6 +20,13 @@ class ReviewSessionStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class SourceProvenance(str, Enum):
+    UNKNOWN = "unknown"
+    MANUAL_KEYFRAME = "manual_keyframe"
+    SAM2_PROPAGATED_FRAME = "sam2_propagated_frame"
+    REVIEWED_PROPAGATED_FRAME = "reviewed_propagated_frame"
+
+
 class ValidationSeverity(str, Enum):
     ERROR = "error"
     WARNING = "warning"

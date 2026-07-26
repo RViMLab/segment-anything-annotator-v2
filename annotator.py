@@ -759,11 +759,19 @@ class MainWindow(QMainWindow):
         )
         self.review_panel.finishRequested.connect(self.finishReviewSession)
         self.review_panel.resetTimerRequested.connect(self.resetReviewTimer)
+        self.review_panel.exportRequested.connect(self.exportReviewCsv)
         # The annotator uses a fixed-position canvas layout, so a native Qt
         # dock would cover those widgets. Reuse the existing right-hand panel
         # and expose review controls and polygon labels as tabs instead.
         self.review_tabs = QtWidgets.QTabWidget(self.shape_dock)
-        self.review_tabs.addTab(self.review_panel, self.tr("Review"))
+        self.review_scroll = QScrollArea(self.review_tabs)
+        self.review_scroll.setWidgetResizable(True)
+        self.review_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.review_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+        self.review_scroll.setWidget(self.review_panel)
+        self.review_tabs.addTab(self.review_scroll, self.tr("Review"))
         self.review_tabs.addTab(self.labels_widget, self.tr("Polygons"))
         self.shape_dock.setWindowTitle(self.tr("Review and Polygon Labels"))
         self.shape_dock.setWidget(self.review_tabs)
@@ -794,6 +802,10 @@ class MainWindow(QMainWindow):
             self.current_img = self.img_list[self.current_img_index]
             self.loadImg()
             self._activateReviewItem()
+            self.exportReviewCsv(
+                show_confirmation=False,
+                persist_current=False,
+            )
 
     def _reviewedCount(self):
         from review import ReviewStatus
@@ -857,6 +869,10 @@ class MainWindow(QMainWindow):
                 active_review_seconds=self.review_panel.elapsed_seconds(),
                 reviewer_notes=self.review_panel.notes_edit.toPlainText().strip(),
                 problem_status=self.review_panel.problem_combo.currentText().strip(),
+                source_provenance=(
+                    self.review_panel.provenance_combo.currentData()
+                    or "unknown"
+                ),
             )
         )
         self._replaceReviewItem(saved)
@@ -975,6 +991,10 @@ class MainWindow(QMainWindow):
         current = with_item_status(current, status)
         current = self.review_storage.save_item(current)
         self._replaceReviewItem(current)
+        self.exportReviewCsv(
+            show_confirmation=False,
+            persist_current=False,
+        )
         self.review_panel.set_progress(
             self._reviewedCount(), len(self.review_items)
         )
@@ -1033,6 +1053,10 @@ class MainWindow(QMainWindow):
             self.review_session.session_id,
             ReviewSessionStatus.COMPLETED,
         )
+        self.exportReviewCsv(
+            show_confirmation=False,
+            persist_current=False,
+        )
         self.review_panel.setEnabled(False)
         self.setWindowTitle(
             "segment-anything-annotator — Review session completed "
@@ -1043,6 +1067,32 @@ class MainWindow(QMainWindow):
             self.tr("Review session completed"),
             self.tr("The review session has been marked as complete."),
         )
+
+    def exportReviewCsv(self, show_confirmation=True, persist_current=True):
+        from review import export_session_csv
+
+        if self.review_storage is None or self.review_session is None:
+            return
+        if persist_current:
+            self._persistCurrentReviewState()
+        try:
+            destination = export_session_csv(
+                self.review_storage,
+                self.review_session,
+            )
+        except OSError as error:
+            QMessageBox.warning(
+                self,
+                self.tr("Could not export review CSV"),
+                self.tr(f"The review database is safe, but CSV export failed.\n\n{error}"),
+            )
+            return
+        if show_confirmation:
+            QMessageBox.information(
+                self,
+                self.tr("Review CSV exported"),
+                self.tr(f"Review data exported to:\n\n{destination}"),
+            )
 
 
     def saveFileAs(self, _value=False):

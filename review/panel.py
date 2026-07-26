@@ -4,7 +4,7 @@ import time
 
 from qtpy import QtCore, QtWidgets
 
-from .models import ReviewStatus
+from .models import ReviewStatus, SourceProvenance
 
 
 class ReviewPanel(QtWidgets.QWidget):
@@ -15,6 +15,7 @@ class ReviewPanel(QtWidgets.QWidget):
     nextRequested = QtCore.Signal()
     finishRequested = QtCore.Signal()
     resetTimerRequested = QtCore.Signal()
+    exportRequested = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -72,6 +73,26 @@ class ReviewPanel(QtWidgets.QWidget):
             self.decision_buttons.append(button)
             layout.addWidget(button)
 
+        provenance_label = QtWidgets.QLabel("Annotation provenance")
+        provenance_label.setWordWrap(True)
+        layout.addWidget(provenance_label)
+        self.provenance_combo = QtWidgets.QComboBox()
+        self.provenance_combo.addItem(
+            "Unknown / legacy", SourceProvenance.UNKNOWN.value
+        )
+        self.provenance_combo.addItem(
+            "Manual keyframe", SourceProvenance.MANUAL_KEYFRAME.value
+        )
+        self.provenance_combo.addItem(
+            "SAM2 propagated frame",
+            SourceProvenance.SAM2_PROPAGATED_FRAME.value,
+        )
+        self.provenance_combo.addItem(
+            "Reviewed propagated frame",
+            SourceProvenance.REVIEWED_PROPAGATED_FRAME.value,
+        )
+        layout.addWidget(self.provenance_combo)
+
         problem_label = QtWidgets.QLabel("Problem / validation status")
         problem_label.setWordWrap(True)
         layout.addWidget(problem_label)
@@ -114,6 +135,9 @@ class ReviewPanel(QtWidgets.QWidget):
         )
         self.finish_button.clicked.connect(self.finishRequested)
         layout.addWidget(self.finish_button)
+        self.export_button = QtWidgets.QPushButton("Export review CSV")
+        self.export_button.clicked.connect(self.exportRequested)
+        layout.addWidget(self.export_button)
         layout.addStretch()
 
         self._display_timer = QtCore.QTimer(self)
@@ -133,6 +157,10 @@ class ReviewPanel(QtWidgets.QWidget):
         )
         self.notes_edit.setPlainText(item.reviewer_notes)
         self.problem_combo.setCurrentText(item.problem_status)
+        provenance_index = self.provenance_combo.findData(
+            item.source_provenance
+        )
+        self.provenance_combo.setCurrentIndex(max(0, provenance_index))
         self.start_timer()
 
     def set_reviewer(self, reviewer_id, reviewer_role):
@@ -165,6 +193,7 @@ class ReviewPanel(QtWidgets.QWidget):
         self.set_progress(reviewed_count, target_count)
         self.notes_edit.setEnabled(False)
         self.problem_combo.setEnabled(False)
+        self.provenance_combo.setEnabled(False)
         self.pause_button.setEnabled(False)
         self.reset_timer_button.setEnabled(False)
         for button in self.decision_buttons:
@@ -173,6 +202,7 @@ class ReviewPanel(QtWidgets.QWidget):
     def _set_review_controls_enabled(self, enabled):
         self.notes_edit.setEnabled(enabled)
         self.problem_combo.setEnabled(enabled)
+        self.provenance_combo.setEnabled(enabled)
         self.pause_button.setEnabled(enabled)
         self.reset_timer_button.setEnabled(enabled)
         for button in self.decision_buttons:
