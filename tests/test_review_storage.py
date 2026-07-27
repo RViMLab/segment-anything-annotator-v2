@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 
@@ -60,7 +61,10 @@ class ReviewStorageTests(unittest.TestCase):
             items[0].reviewed_annotation_path,
             self.output / "frame-1.json",
         )
-        with sqlite3.connect(storage.database_path) as connection:
+        # sqlite3.Connection's context manager commits/rolls back but does not
+        # close the handle. Explicit closing is required before Windows can
+        # remove the temporary database in tearDown.
+        with closing(sqlite3.connect(storage.database_path)) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
         self.assertEqual(version, 1)
 
