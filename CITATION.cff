@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite the version you used."
+title: "Segment Anything Annotator & Reviewer"
+type: software
+version: 1.0.0
+license: GPL-3.0-only
+authors:
+  - family-names: "Namour"
+    given-names: "Adriana"
+    orcid: "https://orcid.org/0000-0001-7319-9899"
+    affiliation: "School of Biomedical Engineering and Imaging Sciences, King's College London"
+  - family-names: "Bergeles"
+    given-names: "Christos"
+    orcid: "https://orcid.org/0000-0002-9152-3194"
+    affiliation: "School of Biomedical Engineering and Imaging Sciences, King's College London"
+repository-code: "https://github.com/RViMLab/segment-anything-annotator-v2"
+url: "https://github.com/RViMLab/segment-anything-annotator-v2"
+abstract: >-
+  A cross-platform desktop application for Segment Anything Model-assisted
+  pixel-level image annotation and resumable expert review of
+  Labelme-compatible polygon annotations. It supports polygon editing,
+  review decisions, active-time tracking, provenance, annotation change
+  detection, resumable SQLite storage, and CSV audit export.
+keywords:
+  - image annotation
+  - annotation review
+  - Segment Anything Model
+  - semantic segmentation
+  - computer vision
+  - medical imaging
+  - expert review
+  - audit trail
