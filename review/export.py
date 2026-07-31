@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import os
+import re
 import tempfile
 from pathlib import Path
 
@@ -14,6 +15,7 @@ CSV_COLUMNS = (
     "reviewer_id",
     "reviewer_role",
     "relative_key",
+    "frame_idx",
     "ordinal",
     "image_path",
     "original_annotation_path",
@@ -34,6 +36,17 @@ CSV_COLUMNS = (
     "updated_at",
     "is_active",
 )
+
+FRAME_NAME_PATTERN = re.compile(
+    r"^frame_([0-9]+)(?:\.(?:json|png|jpe?g))?$",
+    re.IGNORECASE,
+)
+
+
+def derive_frame_idx(value):
+    basename = str(value).replace("\\", "/").rsplit("/", 1)[-1]
+    match = FRAME_NAME_PATTERN.fullmatch(basename)
+    return int(match.group(1)) if match else None
 
 
 def _optional_bool(value):
@@ -74,6 +87,11 @@ def export_session_csv(storage, session, destination=None) -> Path:
                         "reviewer_id": session.reviewer_id,
                         "reviewer_role": session.reviewer_role,
                         "relative_key": item.relative_key,
+                        "frame_idx": (
+                            ""
+                            if derive_frame_idx(item.relative_key) is None
+                            else derive_frame_idx(item.relative_key)
+                        ),
                         "ordinal": item.ordinal,
                         "image_path": str(item.image_path),
                         "original_annotation_path": str(

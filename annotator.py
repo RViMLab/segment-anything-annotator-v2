@@ -94,6 +94,8 @@ class MainWindow(QMainWindow):
         self.review_item_by_image = {}
         self.review_target_image_indexes = []
         self.review_session_was_resumed = False
+        self.review_shortcuts = []
+        self._review_decision_in_progress = False
         self.review_panel = None
         self.review_tabs = None
         self.current_review_item = None
@@ -567,7 +569,7 @@ class MainWindow(QMainWindow):
         merge = action(
             self.tr("Merge Polygons"),
             lambda: self.startMerge(),
-            'm',
+            'Shift+M',
             "edit",
             self.tr("Merge two selected polygons"),
             enabled=True,
@@ -747,10 +749,10 @@ class MainWindow(QMainWindow):
         )
         self.review_panel = ReviewPanel(self)
         self.review_panel.set_reviewer(
-            self.review_config.reviewer_id,
-            self.review_config.reviewer_role,
+            self.review_session.reviewer_id,
+            self.review_session.reviewer_role,
         )
-        self.review_panel.decisionRequested.connect(self.recordReviewDecision)
+        self.review_panel.decisionRequested.connect(self.submitReviewDecision)
         self.review_panel.previousRequested.connect(
             lambda: self.navigateReviewTarget(-1)
         )
@@ -760,6 +762,7 @@ class MainWindow(QMainWindow):
         self.review_panel.finishRequested.connect(self.finishReviewSession)
         self.review_panel.resetTimerRequested.connect(self.resetReviewTimer)
         self.review_panel.exportRequested.connect(self.exportReviewCsv)
+        self._configureReviewShortcuts()
         # The annotator uses a fixed-position canvas layout, so a native Qt
         # dock would cover those widgets. Reuse the existing right-hand panel
         # and expose review controls and polygon labels as tabs instead.
@@ -808,15 +811,12 @@ class MainWindow(QMainWindow):
             )
 
     def _reviewedCount(self):
-        from review import ReviewStatus
+        return self._reviewProgress().reviewed
 
-        completed = {
-            ReviewStatus.NO_CHANGE,
-            ReviewStatus.MINOR_CORRECTION,
-            ReviewStatus.MAJOR_CORRECTION,
-            ReviewStatus.UNABLE_TO_REVIEW,
-        }
-        return sum(item.status in completed for item in self.review_items)
+    def _reviewProgress(self):
+        from review import calculate_review_progress
+
+        return calculate_review_progress(self.review_items)
 
     def _activateReviewItem(self):
         from review import ReviewStatus, with_item_status
@@ -831,8 +831,7 @@ class MainWindow(QMainWindow):
             self.review_panel.set_context(
                 self.current_img_index + 1,
                 self.img_len,
-                self._reviewedCount(),
-                len(self.review_items),
+                self._reviewProgress(),
             )
             self.setClean()
             return
@@ -844,9 +843,61 @@ class MainWindow(QMainWindow):
         self.current_review_item = item
         self.review_panel.set_item(
             item,
-            self._reviewedCount(),
-            len(self.review_items),
+            self._reviewProgress(),
         )
+
+    def _configureReviewShortcuts(self):
+        from review import DECISION_SHORTCUTS
+
+        bindings = [
+            (
+                sequence,
+                lambda value=status: self.review_panel.request_decision(value),
+                True,
+            )
+            for sequence, status in DECISION_SHORTCUTS
+        ]
+        bindings.extend(
+            (
+                ("Space", self.review_panel.toggle_timer, True),
+                ("Alt+Left", lambda: self.navigateReviewTarget(-1), False),
+                ("Alt+Right", lambda: self.navigateReviewTarget(1), False),
+            )
+        )
+        for sequence, callback, requires_target in bindings:
+            shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ApplicationShortcut)
+            shortcut.setAutoRepeat(False)
+            shortcut.activated.connect(
+                lambda cb=callback, required=requires_target:
+                self._runReviewShortcut(cb, required)
+            )
+            self.review_shortcuts.append(shortcut)
+
+    def _runReviewShortcut(self, callback, requires_target):
+        from review import is_editable_focus
+
+        if self.review_panel is None or not self.review_panel.isEnabled():
+            return
+        if requires_target and self.current_review_item is None:
+            return
+        if QApplication.activeModalWidget() is not None:
+            return
+        focus = QApplication.focusWidget()
+        if is_editable_focus(focus):
+            return
+        callback()
+
+    def submitReviewDecision(self, status):
+        if self._review_decision_in_progress or self.current_review_item is None:
+            return
+        self._review_decision_in_progress = True
+        try:
+            recorded = self.recordReviewDecision(status)
+            if recorded:
+                self.review_panel.highlight_decision(status)
+        finally:
+            self._review_decision_in_progress = False
 
     def _replaceReviewItem(self, saved_item):
         self.review_items[saved_item.ordinal] = saved_item
@@ -936,7 +987,7 @@ class MainWindow(QMainWindow):
         from review import compare_annotations, ReviewStatus, with_item_status
 
         if self.current_review_item is None:
-            return
+            return False
         if status == ReviewStatus.NO_CHANGE:
             if self.actions.save.isEnabled():
                 reply = QMessageBox.question(
@@ -949,7 +1000,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.Yes | QMessageBox.Cancel,
                 )
                 if reply != QMessageBox.Yes:
-                    return
+                    return False
             os.makedirs(osp.dirname(self.current_output_filename), exist_ok=True)
             shutil.copy2(
                 str(self.current_review_item.original_annotation_path),
@@ -995,9 +1046,7 @@ class MainWindow(QMainWindow):
             show_confirmation=False,
             persist_current=False,
         )
-        self.review_panel.set_progress(
-            self._reviewedCount(), len(self.review_items)
-        )
+        self.review_panel.set_progress(self._reviewProgress())
 
         incomplete = {
             ReviewStatus.UNREVIEWED,
@@ -1026,20 +1075,18 @@ class MainWindow(QMainWindow):
                     "session when you are ready to complete the session."
                 ),
             )
+        return True
 
     def finishReviewSession(self):
-        from review import ReviewSessionStatus
+        from review import (
+            finish_confirmation_text,
+            ReviewSessionStatus,
+        )
 
         self._persistCurrentReviewState()
-        reviewed = self._reviewedCount()
-        total = len(self.review_items)
         message = self.tr(
-            "Mark this review session as complete?\n\n"
-            f"Reviewed: {reviewed} / {total}\n"
-            "A completed session will not be resumed next time."
+            finish_confirmation_text(self._reviewProgress())
         )
-        if reviewed < total:
-            message += self.tr("\n\nSome targets do not have a decision.")
         reply = QMessageBox.question(
             self,
             self.tr("Finish review session"),
@@ -2633,7 +2680,8 @@ if __name__ == '__main__':
         # behind other applications and make the process appear unresponsive.
         review_dialog = ReviewSessionDialog()
         review_dialog.reviewer_id_edit.setText(args.reviewer_id)
-        review_dialog.reviewer_role_edit.setText(args.reviewer_role)
+        if args.reviewer_role:
+            review_dialog.reviewer_role_edit.setText(args.reviewer_role)
         review_dialog.image_directory_edit.setText(args.review_images)
         review_dialog.annotation_directory_edit.setText(
             args.review_annotations

@@ -194,10 +194,10 @@ class ReviewStorage:
                 connection.execute(
                     """
                     UPDATE review_sessions
-                    SET reviewer_role = ?, updated_at = ?
+                    SET updated_at = ?
                     WHERE session_id = ?
                     """,
-                    (config.reviewer_role, timestamp, session_id),
+                    (timestamp, session_id),
                 )
 
             connection.execute(
@@ -226,10 +226,11 @@ class ReviewStorage:
                         reviewed_annotation_path,
                         image_width,
                         image_height,
+                        source_provenance,
                         created_at,
                         updated_at,
                         is_active
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                     ON CONFLICT(session_id, relative_key) DO UPDATE SET
                         ordinal = excluded.ordinal,
                         image_path = excluded.image_path,
@@ -251,6 +252,7 @@ class ReviewStorage:
                         str(reviewed_annotation),
                         pair.image_width,
                         pair.image_height,
+                        config.default_provenance,
                         timestamp,
                         timestamp,
                     ),

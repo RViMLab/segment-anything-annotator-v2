@@ -177,7 +177,8 @@ python annotator.py --review --app_resolution 1000,1600 --model_type vit_b --kee
 The startup dialog requests:
 
 - reviewer ID (required);
-- reviewer role (optional);
+- reviewer role (optional and remembered for the next session);
+- default provenance for newly created review targets;
 - image directory;
 - original annotation directory;
 - reviewed annotation output directory.
@@ -235,17 +236,29 @@ and **Resume** exclude interruptions, while **Reset timer** resets only the
 current target after confirmation. Context images pause the timer automatically
 and disable review decisions.
 
+Decision shortcuts submit the displayed decision, save or copy the annotation,
+and advance. Navigation shortcuts never complete a target. Shortcuts are
+suppressed while typing in notes or another editable field.
+
 | Control | Review-mode action |
 | --- | --- |
 | `Page Up` / **Last Image** | Previous image, including context images |
 | `Page Down` / **Next Image** | Next image, including context images |
 | `J` / **Jump** | Select any image by index or filename |
-| **Previous target** | Previous image with a matched annotation |
-| **Next target** | Next image with a matched annotation |
+| `K` | No change / OK; save and advance |
+| `M` | Minor correction; save and advance |
+| `L` | Major correction; save and advance |
+| `O` | Unable to review; record and advance |
+| `Space` | Pause or resume the active review timer |
+| `Alt+Left` / **Previous target** | Previous matched target; navigation only |
+| `Alt+Right` / **Next target** | Next matched target; navigation only |
 | **Export review CSV** | Rewrite the current session CSV from SQLite |
 
-The progress count includes annotation targets only, not view-only context
-images.
+The progress display counts annotation targets only, not view-only context
+images. `Reviewed` includes the four explicit decisions, `Opened but undecided`
+means `in_progress`, and `Not yet opened` means `unreviewed`. After at least five
+completed targets, the approximate remaining time uses the median completed
+target time so long interruptions do not dominate the estimate.
 
 ### Provenance categories
 
@@ -257,7 +270,8 @@ images.
 | `Reviewed propagated frame` | A propagated annotation was reviewed or corrected |
 
 Provenance is stored per review target and can be changed when revisiting an
-item.
+item. The configuration-dialog default is applied only to new targets; resumed
+targets preserve their stored per-item values.
 
 ### Change detection and audit files
 
@@ -308,6 +322,8 @@ SQLite record.
   are explicitly intended.
 - Use **Finish review session** deliberately; merely closing the app preserves
   the active session for resumption.
+- Finishing a partial session leaves `in_progress` and `unreviewed` statuses
+  unchanged but prevents that session from resuming automatically.
 
 ## Image annotator shortcuts
 
@@ -329,7 +345,7 @@ SQLite record.
 | Arrow keys | Nudge a selected polygon |
 | `D` | Delete selected polygons |
 | `H` | Hide/show all polygons |
-| `M` | Merge polygons |
+| `Shift+M` | Merge polygons |
 | `Shift+S` | Subtract polygons |
 | `Shift+R` | Reduce polygon points |
 | `U` | Undo the last point |

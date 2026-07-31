@@ -40,6 +40,7 @@ class ReviewConfig:
     image_directory: Path
     annotation_directory: Path
     output_directory: Path
+    default_provenance: str = SourceProvenance.UNKNOWN.value
 
     def normalized(self) -> "ReviewConfig":
         return ReviewConfig(
@@ -48,6 +49,7 @@ class ReviewConfig:
             image_directory=self.image_directory.expanduser().resolve(),
             annotation_directory=self.annotation_directory.expanduser().resolve(),
             output_directory=self.output_directory.expanduser().resolve(),
+            default_provenance=self.default_provenance,
         )
 
 

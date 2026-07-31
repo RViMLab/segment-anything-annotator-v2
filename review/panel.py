@@ -5,6 +5,7 @@ import time
 from qtpy import QtCore, QtWidgets
 
 from .models import ReviewStatus, SourceProvenance
+from .progress import progress_text
 
 
 class ReviewPanel(QtWidgets.QWidget):
@@ -25,7 +26,8 @@ class ReviewPanel(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self)
         self.reviewer_label = QtWidgets.QLabel("")
         self.reviewer_label.setWordWrap(True)
-        self.progress_label = QtWidgets.QLabel("Reviewed 0 / 0")
+        self.progress_label = QtWidgets.QLabel("Reviewed: 0 / 0 (0.0%)")
+        self.progress_label.setWordWrap(True)
         self.progress_label.setStyleSheet("font-weight: bold;")
         self.item_label = QtWidgets.QLabel("No review item loaded")
         self.item_label.setWordWrap(True)
@@ -37,6 +39,7 @@ class ReviewPanel(QtWidgets.QWidget):
         self.timer_label = QtWidgets.QLabel("00:00")
         self.timer_label.setStyleSheet("font-size: 13pt; font-weight: bold;")
         self.pause_button = QtWidgets.QPushButton("Pause")
+        self.pause_button.setToolTip("Pause / Resume active timer (Space)")
         self.pause_button.clicked.connect(self.toggle_timer)
         self.reset_timer_button = QtWidgets.QPushButton("Reset timer")
         self.reset_timer_button.clicked.connect(self.resetTimerRequested)
@@ -49,28 +52,31 @@ class ReviewPanel(QtWidgets.QWidget):
         timer_buttons.addWidget(self.reset_timer_button)
         layout.addLayout(timer_buttons)
 
-        decision_label = QtWidgets.QLabel("Decision (save and next)")
+        decision_label = QtWidgets.QLabel("Decision — save and advance")
         decision_label.setWordWrap(True)
         layout.addWidget(decision_label)
         decisions = (
-            ("No change", ReviewStatus.NO_CHANGE),
-            ("Minor correction", ReviewStatus.MINOR_CORRECTION),
-            ("Major correction", ReviewStatus.MAJOR_CORRECTION),
-            ("Unable to review", ReviewStatus.UNABLE_TO_REVIEW),
+            ("No change / OK (K)", ReviewStatus.NO_CHANGE),
+            ("Minor correction (M)", ReviewStatus.MINOR_CORRECTION),
+            ("Major correction (L)", ReviewStatus.MAJOR_CORRECTION),
+            ("Unable to review (O)", ReviewStatus.UNABLE_TO_REVIEW),
         )
         self.decision_buttons = []
+        self.decision_button_by_status = {}
         for text, status in decisions:
             button = QtWidgets.QPushButton(text)
             button.clicked.connect(
                 lambda _checked=False, value=status:
-                self.decisionRequested.emit(value)
+                self.request_decision(value)
             )
+            button.setFocusPolicy(QtCore.Qt.NoFocus)
             button.setMinimumHeight(34)
             button.setSizePolicy(
                 QtWidgets.QSizePolicy.Ignored,
                 QtWidgets.QSizePolicy.Fixed,
             )
             self.decision_buttons.append(button)
+            self.decision_button_by_status[status] = button
             layout.addWidget(button)
 
         provenance_label = QtWidgets.QLabel("Annotation provenance")
@@ -111,6 +117,9 @@ class ReviewPanel(QtWidgets.QWidget):
         self.notes_edit.setMaximumHeight(75)
         layout.addWidget(self.notes_edit)
 
+        navigation_label = QtWidgets.QLabel("Navigation only")
+        navigation_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(navigation_label)
         nav = QtWidgets.QHBoxLayout()
         previous_button = QtWidgets.QPushButton("Previous target")
         next_button = QtWidgets.QPushButton("Next target")
@@ -124,6 +133,8 @@ class ReviewPanel(QtWidgets.QWidget):
         )
         previous_button.clicked.connect(self.previousRequested)
         next_button.clicked.connect(self.nextRequested)
+        previous_button.setToolTip("Navigate only (Alt+Left)")
+        next_button.setToolTip("Navigate only (Alt+Right)")
         nav.addWidget(previous_button)
         nav.addWidget(next_button)
         layout.addLayout(nav)
@@ -144,17 +155,15 @@ class ReviewPanel(QtWidgets.QWidget):
         self._display_timer.setInterval(250)
         self._display_timer.timeout.connect(self._update_timer_label)
 
-    def set_item(self, item, reviewed_count, total_count):
+    def set_item(self, item, progress):
         self.stop_timer()
         self._set_review_controls_enabled(True)
         self._stored_seconds = item.active_review_seconds
         self.item_label.setText(
-            f"Target {item.ordinal + 1} / {total_count}\n"
+            f"Target {item.ordinal + 1} / {progress.total}\n"
             f"{item.relative_key}\nStatus: {item.status.value.replace('_', ' ')}"
         )
-        self.progress_label.setText(
-            f"Reviewed {reviewed_count} / {total_count}"
-        )
+        self.set_progress(progress)
         self.notes_edit.setPlainText(item.reviewer_notes)
         self.problem_combo.setCurrentText(item.problem_status)
         provenance_index = self.provenance_combo.findData(
@@ -167,10 +176,8 @@ class ReviewPanel(QtWidgets.QWidget):
         role = f" — {reviewer_role}" if reviewer_role else ""
         self.reviewer_label.setText(f"Reviewer: {reviewer_id}{role}")
 
-    def set_progress(self, reviewed_count, total_count):
-        self.progress_label.setText(
-            f"Reviewed {reviewed_count} / {total_count}"
-        )
+    def set_progress(self, progress):
+        self.progress_label.setText(progress_text(progress))
 
     def start_timer(self):
         if self._running_since is None:
@@ -184,13 +191,13 @@ class ReviewPanel(QtWidgets.QWidget):
         self._running_since = time.monotonic()
         self._update_timer_label()
 
-    def set_context(self, image_number, image_count, reviewed_count, target_count):
+    def set_context(self, image_number, image_count, progress):
         self.stop_timer()
         self.item_label.setText(
             f"Context image {image_number} / {image_count}\n"
             "No matched annotation — view only"
         )
-        self.set_progress(reviewed_count, target_count)
+        self.set_progress(progress)
         self.notes_edit.setEnabled(False)
         self.problem_combo.setEnabled(False)
         self.provenance_combo.setEnabled(False)
@@ -221,6 +228,20 @@ class ReviewPanel(QtWidgets.QWidget):
             self.start_timer()
         else:
             self.stop_timer()
+
+    def request_decision(self, status):
+        button = self.decision_button_by_status.get(status)
+        if button is not None and button.isEnabled():
+            self.decisionRequested.emit(status)
+
+    def highlight_decision(self, status):
+        for button_status, button in self.decision_button_by_status.items():
+            if button_status == status:
+                button.setStyleSheet(
+                    "QPushButton { background: #dcecff; border: 1px solid #6b9bd1; }"
+                )
+            else:
+                button.setStyleSheet("")
 
     def elapsed_seconds(self):
         elapsed = self._stored_seconds
