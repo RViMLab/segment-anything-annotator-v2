@@ -11,6 +11,7 @@ from review import (
     ReviewStorage,
     SourceProvenance,
     export_session_csv,
+    derive_frame_idx,
     with_item_status,
 )
 
@@ -99,6 +100,20 @@ class ReviewExportTests(unittest.TestCase):
         )
         inactive = next(row for row in rows if row["relative_key"] == "frame-2")
         self.assertEqual(inactive["is_active"], "0")
+
+    def test_strict_frame_index_parser(self):
+        self.assertEqual(derive_frame_idx("frame_024550"), 24550)
+        self.assertEqual(derive_frame_idx("frame_024550.json"), 24550)
+        self.assertEqual(derive_frame_idx("frame_024550.png"), 24550)
+        self.assertEqual(derive_frame_idx("case/frame_024550"), 24550)
+        for value in (
+            "024550",
+            "my_frame_024550",
+            "frame_024550_extra",
+            "frame_24.5",
+            "frame_.png",
+        ):
+            self.assertIsNone(derive_frame_idx(value))
 
 
 if __name__ == "__main__":

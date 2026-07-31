@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from qtpy import QtWidgets
+from qtpy import QtCore, QtWidgets
 
-from .models import ReviewConfig, ValidationReport
+from .models import ReviewConfig, SourceProvenance, ValidationReport
 from .validation import validate_review_config
 
 
@@ -14,21 +14,35 @@ class ReviewSessionDialog(QtWidgets.QDialog):
         self,
         parent=None,
         initial_config: Optional[ReviewConfig] = None,
+        settings=None,
     ):
         super().__init__(parent)
         self.setWindowTitle("Configure annotation review session")
         self.resize(760, 520)
         self.validation_report: Optional[ValidationReport] = None
+        self.settings = settings if settings is not None else QtCore.QSettings()
 
         self.reviewer_id_edit = QtWidgets.QLineEdit()
         self.reviewer_role_edit = QtWidgets.QLineEdit()
         self.image_directory_edit = QtWidgets.QLineEdit()
         self.annotation_directory_edit = QtWidgets.QLineEdit()
         self.output_directory_edit = QtWidgets.QLineEdit()
+        self.default_provenance_combo = QtWidgets.QComboBox()
+        for label, value in (
+            ("Unknown / legacy", SourceProvenance.UNKNOWN.value),
+            ("Manual keyframe", SourceProvenance.MANUAL_KEYFRAME.value),
+            ("SAM2 propagated frame", SourceProvenance.SAM2_PROPAGATED_FRAME.value),
+            ("Reviewed propagated frame", SourceProvenance.REVIEWED_PROPAGATED_FRAME.value),
+        ):
+            self.default_provenance_combo.addItem(label, value)
+        self.reviewer_role_edit.setText(
+            self.settings.value("review/last_reviewer_role", "", type=str)
+        )
 
         form = QtWidgets.QFormLayout()
         form.addRow("Reviewer ID *", self.reviewer_id_edit)
         form.addRow("Reviewer role", self.reviewer_role_edit)
+        form.addRow("Default provenance", self.default_provenance_combo)
         form.addRow(
             "Image directory *",
             self._directory_field(self.image_directory_edit),
@@ -76,6 +90,9 @@ class ReviewSessionDialog(QtWidgets.QDialog):
 
         if initial_config is not None:
             self._set_initial_config(initial_config)
+        self.default_provenance_combo.currentIndexChanged.connect(
+            self._clear_validation
+        )
 
     def _directory_field(self, line_edit):
         widget = QtWidgets.QWidget()
@@ -108,6 +125,10 @@ class ReviewSessionDialog(QtWidgets.QDialog):
             str(config.annotation_directory)
         )
         self.output_directory_edit.setText(str(config.output_directory))
+        index = self.default_provenance_combo.findData(
+            config.default_provenance
+        )
+        self.default_provenance_combo.setCurrentIndex(max(0, index))
 
     def _clear_validation(self):
         self.validation_report = None
@@ -121,6 +142,10 @@ class ReviewSessionDialog(QtWidgets.QDialog):
                 self.annotation_directory_edit.text() or "."
             ),
             output_directory=Path(self.output_directory_edit.text() or "."),
+            default_provenance=(
+                self.default_provenance_combo.currentData()
+                or SourceProvenance.UNKNOWN.value
+            ),
         )
 
     def validate_configuration(self) -> ValidationReport:
@@ -158,4 +183,12 @@ class ReviewSessionDialog(QtWidgets.QDialog):
             )
             if response != QtWidgets.QMessageBox.Yes:
                 return
+        self.remember_reviewer_role()
         self.accept()
+
+    def remember_reviewer_role(self):
+        self.settings.setValue(
+            "review/last_reviewer_role",
+            self.reviewer_role_edit.text(),
+        )
+        self.settings.sync()

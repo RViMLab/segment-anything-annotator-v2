@@ -11,6 +11,7 @@ from review import (
     ReviewSessionStatus,
     ReviewStatus,
     ReviewStorage,
+    SourceProvenance,
     with_item_status,
 )
 
@@ -168,6 +169,57 @@ class ReviewStorageTests(unittest.TestCase):
 
         self.assertFalse(resumed)
         self.assertNotEqual(next_session.session_id, first_session.session_id)
+
+    def test_default_provenance_applies_only_to_new_items(self):
+        storage = ReviewStorage.for_config(self.config)
+        sam2_config = replace(
+            self.config,
+            default_provenance=SourceProvenance.SAM2_PROPAGATED_FRAME.value,
+        )
+        session, items, _ = storage.open_or_create_session(
+            sam2_config, [self.pair("frame-1")]
+        )
+        self.assertEqual(
+            items[0].source_provenance,
+            SourceProvenance.SAM2_PROPAGATED_FRAME.value,
+        )
+        overridden = storage.save_item(
+            replace(
+                items[0],
+                source_provenance=(
+                    SourceProvenance.REVIEWED_PROPAGATED_FRAME.value
+                ),
+            )
+        )
+
+        _, resumed_items, resumed = storage.open_or_create_session(
+            replace(
+                sam2_config,
+                default_provenance=SourceProvenance.MANUAL_KEYFRAME.value,
+            ),
+            [self.pair("frame-1")],
+        )
+        self.assertTrue(resumed)
+        self.assertEqual(resumed_items[0].item_id, overridden.item_id)
+        self.assertEqual(
+            resumed_items[0].source_provenance,
+            SourceProvenance.REVIEWED_PROPAGATED_FRAME.value,
+        )
+
+    def test_resuming_does_not_rewrite_historical_reviewer_role(self):
+        storage = ReviewStorage.for_config(self.config)
+        first_session, _, _ = storage.open_or_create_session(
+            self.config, [self.pair("frame-1")]
+        )
+        resumed_session, _, resumed = storage.open_or_create_session(
+            replace(self.config, reviewer_role="changed role"),
+            [self.pair("frame-1")],
+        )
+        self.assertTrue(resumed)
+        self.assertEqual(
+            resumed_session.reviewer_role,
+            first_session.reviewer_role,
+        )
 
 
 if __name__ == "__main__":
