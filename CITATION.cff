@@ -3,6 +3,8 @@ message: "If you use this software in your research, please cite the version you
 title: "Segment Anything Annotator & Reviewer"
 type: software
 version: 1.0.0
+date-released: 2026-07-31
+doi: "10.5281/zenodo.21726098"
 license: GPL-3.0-only
 authors:
   - family-names: "Namour"

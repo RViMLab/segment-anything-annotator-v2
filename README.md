@@ -1,5 +1,9 @@
 # Segment Anything Annotator & Reviewer
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/RViMLab/segment-anything-annotator-v2)](https://github.com/RViMLab/segment-anything-annotator-v2/releases/latest)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21726097.svg)](https://doi.org/10.5281/zenodo.21726097)
+
 A PyQt desktop application for pixel-level image annotation with Meta's
 [Segment Anything Model (SAM)](https://github.com/facebookresearch/segment-anything).
 Generate masks from point, box, or circle prompts; refine them as polygons; and
@@ -450,6 +454,28 @@ python -m unittest discover -s tests -v
 The tests cover review path validation, resumable SQLite storage, JSON and
 geometry comparison, raster-mask comparison, provenance, duplicate-safe CSV
 export, application icon assets, and the complete review audit workflow.
+
+## Citation
+
+If you use Segment Anything Annotator & Reviewer in your research, please cite
+the specific software version used. The citation for version 1.0.0 is:
+
+```bibtex
+@software{namour_2026_21726098,
+  author       = {Namour, Adriana and
+                  Bergeles, Christos},
+  title        = {Segment Anything Annotator \& Reviewer},
+  month        = jul,
+  year         = 2026,
+  publisher    = {Zenodo},
+  version      = {v1.0.0},
+  doi          = {10.5281/zenodo.21726098},
+  url          = {https://doi.org/10.5281/zenodo.21726098},
+}
+```
+
+For other releases, use the repository's **Cite this repository** link or the
+[Zenodo record for all versions](https://doi.org/10.5281/zenodo.21726097).
 
 ## Project history and acknowledgement
 
