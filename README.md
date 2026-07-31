@@ -1,4 +1,4 @@
-# Segment Anything Annotator
+# Segment Anything Annotator & Reviewer
 
 A PyQt desktop application for pixel-level image annotation with Meta's
 [Segment Anything Model (SAM)](https://github.com/facebookresearch/segment-anything).
