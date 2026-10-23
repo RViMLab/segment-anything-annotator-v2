@@ -13,7 +13,6 @@ import numpy as np
 import tempfile
 import torch
 import base64
-import shutil
 from dataclasses import replace
 
 from PyQt5.QtWidgets import QWidget, QApplication, QMainWindow, QApplication, QPushButton, QLabel, QFileDialog, QProgressBar, QComboBox, QScrollArea, QDockWidget, QMessageBox
@@ -26,6 +25,7 @@ from canvas import Canvas
 import utils
 from utils.download_model import download_model
 from utils.app_icon import configure_qt_application, configure_windows_app_id
+from utils.annotation_io import atomic_write_annotation
 
 from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelDialog, LabelListWidget, LabelListWidgetItem, ZoomWidget
 from labelme import PY2
@@ -933,7 +933,8 @@ class MainWindow(QMainWindow):
         if not self.review_target_image_indexes:
             return
         if self.current_review_item is not None and self.actions.save.isEnabled():
-            self.saveFile()
+            if not self.saveFile():
+                return
         self._persistCurrentReviewState()
         if offset > 0:
             candidates = [
@@ -959,7 +960,8 @@ class MainWindow(QMainWindow):
         if not self.img_list:
             return
         if self.current_review_item is not None and self.actions.save.isEnabled():
-            self.saveFile()
+            if not self.saveFile():
+                return
         self._persistCurrentReviewState()
         new_index = self.current_img_index + offset
         if not 0 <= new_index < self.img_len:
@@ -994,24 +996,31 @@ class MainWindow(QMainWindow):
                     self,
                     self.tr("Unsaved corrections"),
                     self.tr(
-                        "This annotation has unsaved edits. Record it as "
-                        "No change and discard those edits?"
+                        "This annotation has unsaved edits. Save these "
+                        "corrections and record it as OK?"
                     ),
                     QMessageBox.Yes | QMessageBox.Cancel,
                 )
                 if reply != QMessageBox.Yes:
                     return False
-            os.makedirs(osp.dirname(self.current_output_filename), exist_ok=True)
-            shutil.copy2(
-                str(self.current_review_item.original_annotation_path),
-                self.current_output_filename,
-            )
-            self.loadImg()
-            self.setClean()
-        elif status != ReviewStatus.UNABLE_TO_REVIEW:
+                if not self.saveFile():
+                    return False
+            elif not osp.isfile(self.current_output_filename):
+                try:
+                    os.makedirs(osp.dirname(self.current_output_filename), exist_ok=True)
+                    with open(self.current_review_item.original_annotation_path, "rb") as source:
+                        contents = source.read()
+                    atomic_write_annotation(
+                        self.current_output_filename, contents, repair_readonly=True,
+                    )
+                except OSError as error:
+                    self._showSaveError(self.current_output_filename, error)
+                    return False
+        elif status != ReviewStatus.UNABLE_TO_REVIEW or self.actions.save.isEnabled():
             # Every successful decision creates a reviewed JSON, including
             # No change, so the original annotation remains untouched.
-            self.saveFile()
+            if not self.saveFile():
+                return False
 
         reviewed_path = self.current_review_item.reviewed_annotation_path
         try:
@@ -1083,6 +1092,8 @@ class MainWindow(QMainWindow):
             ReviewSessionStatus,
         )
 
+        if self.actions.save.isEnabled() and not self.saveFile():
+            return
         self._persistCurrentReviewState()
         message = self.tr(
             finish_confirmation_text(self._reviewProgress())
@@ -1144,7 +1155,7 @@ class MainWindow(QMainWindow):
 
     def saveFileAs(self, _value=False):
         assert not self.image.isNull(), "cannot save empty image"
-        self._saveFile(self.saveFileDialog())
+        return self._saveFile(self.saveFileDialog())
 
     def saveFile(self, _value=False):
         # assert not self.image.isNull(), "cannot save empty image"
@@ -1158,13 +1169,34 @@ class MainWindow(QMainWindow):
         #     self._saveFile(self.saveFileDialog())
         #self._saveFile(self.saveFileDialog())
         #print(self.current_output_filename)
-        self._saveFile(self.current_output_filename)
+        return self._saveFile(self.current_output_filename)
 
     def _saveFile(self, filename):
-        if filename and self.review_config is not None:
-            os.makedirs(osp.dirname(filename), exist_ok=True)
-        if filename and self.saveLabels(filename):
+        if not filename:
+            return False
+        try:
+            if self.review_config is not None:
+                os.makedirs(osp.dirname(filename), exist_ok=True)
+            if not self.saveLabels(filename):
+                return False
+        except (OSError, ValueError, TypeError) as error:
+            self._showSaveError(filename, error)
+            return False
+        else:
             self.setClean()
+            return True
+
+    def _showSaveError(self, filename, error):
+        QMessageBox.critical(
+            self,
+            self.tr("Could not save annotation"),
+            self.tr(
+                f"Could not save:\n{filename}\n\n{error}\n\n"
+                "Your edits are still open. Check that the output folder is "
+                "writable and the file is not locked by another program, "
+                "then try saving again."
+            ),
+        )
 
     def saveLabels(self, filename):
         lf = LabelFile()
@@ -1195,8 +1227,10 @@ class MainWindow(QMainWindow):
             "imageWidth": self.raw_w
         }
 
-        with open(filename, 'w') as f:
-            json.dump(save_data, f)
+        atomic_write_annotation(
+            filename, json.dumps(save_data).encode("utf-8"),
+            repair_readonly=self.review_config is not None,
+        )
         return True
 
     def setClean(self):
@@ -1277,7 +1311,8 @@ class MainWindow(QMainWindow):
             self.navigateImage(1)
             return
         if self.actions.save.isEnabled():
-            self.saveFile()
+            if not self.saveFile():
+                return
         if self.current_img_index < self.img_len - 1:
             self.current_img_index += 1
             self.current_img = self.img_list[self.current_img_index]
@@ -1288,7 +1323,8 @@ class MainWindow(QMainWindow):
             self.navigateImage(-1)
             return
         if self.actions.save.isEnabled():
-            self.saveFile()
+            if not self.saveFile():
+                return
         if self.current_img_index > 0:
             self.current_img_index -= 1
             self.current_img = self.img_list[self.current_img_index]
@@ -1306,7 +1342,8 @@ class MainWindow(QMainWindow):
             if reply == QMessageBox.Cancel:
                 return
             if reply == QMessageBox.Yes:
-                self.saveFile()
+                if not self.saveFile():
+                    return
         if self.img_len == 0:
             return
         items = [f"{i} - {os.path.basename(p)}" for i, p in enumerate(self.img_list)]
@@ -1887,6 +1924,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Persist review notes and active time without completing the session."""
+        if self.actions.save.isEnabled() and not self.saveFile():
+            event.ignore()
+            return
         if self.review_storage is not None and self.current_review_item is not None:
             try:
                 self._persistCurrentReviewState()
