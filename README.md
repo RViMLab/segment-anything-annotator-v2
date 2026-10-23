@@ -25,7 +25,7 @@ save annotations in Labelme-compatible JSON files.
 - Merge and subtract polygon operations
 - Polygon simplification
 - Hide/show controls for all polygons
-- Brightness and contrast preview controls
+- Brightness, contrast, and colour-inversion preview controls
 - Jump-to-image dialog and keyboard navigation
 - Labelme-compatible JSON output
 - Resumable annotation review sessions with timing and audit metadata
@@ -126,6 +126,18 @@ The application writes one Labelme-compatible JSON file per image.
   target.
 - **Subtract Polygons:** select the polygon to subtract, activate Subtract, then
   select the target.
+
+### Image display controls
+
+Use **Invert colours** below **Reset B/C** to toggle a colour-negative preview,
+for example when inspecting difficult endolaser frames. Inversion applies after
+brightness and contrast and stays active when navigating between frames. Click
+it again to restore the normal colours. **Reset B/C** resets the two sliders
+only and leaves the inversion toggle unchanged.
+
+These controls are available in annotation and review mode. They affect the
+preview only; source images, saved image data, polygons, and SAM input stay
+unchanged.
 
 ## Annotation review mode
 
