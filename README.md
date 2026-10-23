@@ -127,6 +127,28 @@ The application writes one Labelme-compatible JSON file per image.
 - **Subtract Polygons:** select the polygon to subtract, activate Subtract, then
   select the target.
 
+### Preserving annotation JSON
+
+Loading and saving an existing annotation retains its version, flags,
+descriptions, unknown metadata, image references, and ordered shape coordinates,
+including repeated vertices. Missing standard image fields are filled when
+saving; JSON whitespace and number formatting may change. Empty shape records
+are retained in the file without being drawn. Newly created annotations use
+the usual embedded image data and default fields.
+
+Labels such as `"0"`, `"01"`, and `"-1"` are treated as literal text by default.
+For older annotations that intentionally store nonnegative category indices,
+launch with **`--legacy-label-indices`** to explicitly map those labels through
+the current `categories.txt` order. Out-of-range and negative values stay
+literal. Saving then writes the displayed labels; use a copied dataset or
+separate review output when converting legacy files. An unedited **OK** decision
+still copies the original JSON and does not convert labels by itself.
+
+This preserves data that exists in the loaded file; it cannot reconstruct
+metadata or vertices already removed by earlier saves. Geometry-changing tools
+such as Reduce Points, merge, and subtract are tracked separately in
+[#36](https://github.com/RViMLab/segment-anything-annotator-v2/issues/36).
+
 ### Image display controls
 
 Use **Invert colours** below **Reset B/C** to toggle a colour-negative preview,
