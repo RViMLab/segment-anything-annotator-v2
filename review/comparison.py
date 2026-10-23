@@ -40,19 +40,43 @@ def _point(point: Sequence[float]) -> Tuple[float, float]:
     return (round(float(point[0]), 8), round(float(point[1]), 8))
 
 
+def _least_rotation(points):
+    """Select the smallest cyclic rotation with constant search workspace.
+
+    When two candidates differ after an equal run, every start skipped in the
+    losing run is also worse. Compare through modular indices rather than
+    materializing all rotations (which requires quadratic memory). The search
+    takes linear time; constructing the returned tuple takes linear space.
+    """
+    size = len(points)
+    first, second, offset = 0, 1, 0
+    while first < size and second < size and offset < size:
+        left = points[(first + offset) % size]
+        right = points[(second + offset) % size]
+        if left == right:
+            offset += 1
+            continue
+        if left > right:
+            first += offset + 1
+            if first == second:
+                first += 1
+        else:
+            second += offset + 1
+            if first == second:
+                second += 1
+        offset = 0
+    start = min(first, second)
+    return points[start:] + points[:start]
+
+
 def _canonical_polygon(points):
     points = tuple(_point(point) for point in points)
     if len(points) > 1 and points[0] == points[-1]:
         points = points[:-1]
     if not points:
         return points
-    rotations = [points[index:] + points[:index] for index in range(len(points))]
     reversed_points = tuple(reversed(points))
-    rotations.extend(
-        reversed_points[index:] + reversed_points[:index]
-        for index in range(len(reversed_points))
-    )
-    return min(rotations)
+    return min(_least_rotation(points), _least_rotation(reversed_points))
 
 
 def _canonical_shape(shape):
