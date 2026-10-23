@@ -246,6 +246,13 @@ class MainWindow(QMainWindow):
         self.button_bc_reset = QPushButton("Reset B/C", self)
         self.button_bc_reset.clicked.connect(self.resetBrightnessContrast)
 
+        self.button_invert_colours = QPushButton("Invert colours", self)
+        self.button_invert_colours.setCheckable(True)
+        self.button_invert_colours.setToolTip(
+            "Invert the preview colours. The source image and annotations are unchanged."
+        )
+        self.button_invert_colours.toggled.connect(self.applyBrightnessContrast)
+
         # Debounce timer – fires 80 ms after the last slider move
         self._bc_timer = QTimer(self)
         self._bc_timer.setSingleShot(True)
@@ -336,6 +343,9 @@ class MainWindow(QMainWindow):
         _vc_reset_w = _vc_x2 + _vc_col_w - _vc_x1
         self.button_bc_reset.move(_vc_x1, _vc_reset_y)
         self.button_bc_reset.resize(_vc_reset_w, _vc_btn_h)
+        self.button_invert_colours.setGeometry(
+            _vc_x1, _vc_reset_y + _vc_btn_h + 6, _vc_reset_w, _vc_btn_h,
+        )
         
         
         
@@ -1447,8 +1457,12 @@ class MainWindow(QMainWindow):
         self.image_encoded_flag = False
         self.current_img_data = LabelFile.load_image_file(self.current_img)
 
-        # Apply current brightness/contrast settings if they are non-neutral
-        if self.brightness_slider.value() != 0 or self.contrast_slider.value() != 100:
+        # Reapply display settings when navigating to another frame.
+        if (
+            self.brightness_slider.value() != 0
+            or self.contrast_slider.value() != 100
+            or self.button_invert_colours.isChecked()
+        ):
             self.applyBrightnessContrast()
 
 
@@ -1954,6 +1968,7 @@ class MainWindow(QMainWindow):
             "shape_dock",
             "contrast_slider",
             "button_bc_reset",
+            "button_invert_colours",
             "scrollArea",
             "img_name",
             "img_progress_bar",
@@ -1971,6 +1986,7 @@ class MainWindow(QMainWindow):
             self.contrast_value_label,
             self.contrast_slider,
             self.button_bc_reset,
+            self.button_invert_colours,
         )
         if not hasattr(self, "_responsive_layout_metrics"):
             slider_left = min(widget.x() for widget in slider_widgets)
@@ -2604,7 +2620,7 @@ class MainWindow(QMainWindow):
         self._bc_timer.start(80)
 
     def applyBrightnessContrast(self):
-        """Apply current slider values to a copy of the raw pixmap.
+        """Apply brightness, contrast, and optional RGB inversion to the preview.
 
         Uses cv2.convertScaleAbs (CPU-only, <5 ms on typical images).
         The raw pixmap and the SAM encoding are never modified.
@@ -2619,11 +2635,17 @@ class MainWindow(QMainWindow):
         qimg = self._raw_pixmap.toImage().convertToFormat(QtGui.QImage.Format_RGB888)
         w, h = qimg.width(), qimg.height()
         ptr  = qimg.bits()
-        ptr.setsize(h * w * 3)
-        img  = np.frombuffer(ptr, dtype=np.uint8).reshape((h, w, 3)).copy()
+        stride = qimg.bytesPerLine()
+        ptr.setsize(h * stride)
+        # QImage pads RGB rows to four-byte boundaries; discard that padding
+        # before handing the pixels to OpenCV.
+        img = np.frombuffer(ptr, dtype=np.uint8).reshape(h, stride)
+        img = img[:, :w * 3].reshape(h, w, 3).copy()
 
         # Apply:  output = clip(contrast × pixel + brightness)
         adjusted = cv2.convertScaleAbs(img, alpha=contrast, beta=brightness)
+        if self.button_invert_colours.isChecked():
+            adjusted = cv2.bitwise_not(adjusted)
 
         # Convert back to QPixmap
         adj_qimg = QImage(adjusted.data, w, h, w * 3, QImage.Format_RGB888)

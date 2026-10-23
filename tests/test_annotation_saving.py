@@ -64,6 +64,7 @@ class AnnotationSavingTests(unittest.TestCase):
                                     createMode=QtWidgets.QAction(None)),
             labelList=[], canvas=Mock(), img_progress_bar=Mock(), img_name=Mock(),
             category_list=[], brightness_slider=Mock(), contrast_slider=Mock(),
+            button_invert_colours=QtWidgets.QPushButton(),
             tr=lambda value: value, exportReviewCsv=Mock(), _activateReviewItem=Mock(),
         )
         self.window.brightness_slider.value.return_value = 0
