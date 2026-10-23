@@ -14,6 +14,7 @@ import tempfile
 import torch
 import base64
 from dataclasses import replace
+from copy import deepcopy
 
 from PyQt5.QtWidgets import QWidget, QApplication, QMainWindow, QApplication, QPushButton, QLabel, QFileDialog, QProgressBar, QComboBox, QScrollArea, QDockWidget, QMessageBox
 from PyQt5.QtGui import QPixmap, QIcon, QImage
@@ -26,6 +27,7 @@ import utils
 from utils.download_model import download_model
 from utils.app_icon import configure_qt_application, configure_windows_app_id
 from utils.annotation_io import atomic_write_annotation
+from utils.annotation_document import shape_to_annotation
 
 from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelDialog, LabelListWidget, LabelListWidgetItem, ZoomWidget
 from labelme import PY2
@@ -52,7 +54,7 @@ class MainWindow(QMainWindow):
 
     FIT_WINDOW, FIT_WIDTH, MANUAL_ZOOM = 0, 1, 2
 
-    def __init__(self, parent=None, global_w=1000, global_h=1800, model_type='vit_b', keep_input_size=True, max_size=1080):
+    def __init__(self, parent=None, global_w=1000, global_h=1800, model_type='vit_b', keep_input_size=True, max_size=1080, legacy_label_indices=False):
         super(MainWindow, self).__init__(parent)
         self.resize(global_w, global_h)
         self.model_type = model_type
@@ -72,6 +74,10 @@ class MainWindow(QMainWindow):
         self.current_output_dir = 'output'
         os.makedirs(self.current_output_dir, exist_ok=True)
         self.current_output_filename = ''
+        self.legacy_label_indices = legacy_label_indices
+        self._annotation_data = None
+        self._annotation_image = None
+        self._annotation_empty_shapes = []
         self.canvas.zoomRequest.connect(self.zoomRequest)
 
         self.memory_shapes = []
@@ -1209,25 +1215,9 @@ class MainWindow(QMainWindow):
         )
 
     def saveLabels(self, filename):
-        lf = LabelFile()
-
-        def format_shape(s):
-            data = s.other_data.copy()
-            data.update(
-                dict(
-                    label=s.label.encode("utf-8") if PY2 else s.label,
-                    points=[[p.x(), p.y()] for p in s.points],
-                    group_id=s.group_id,
-                    description="",
-                    shape_type=s.shape_type,
-                    flags=s.flags,
-                )
-            )
-            return data
-
-        shapes = [format_shape(item.shape()) for item in self.labelList]
+        shapes = [shape_to_annotation(item.shape()) for item in self.labelList]
         imageData = base64.b64encode(self.current_img_data).decode("utf-8")
-        save_data = {
+        defaults = {
             "version": "1.0.0",
             "flags": {},
             "shapes": shapes,
@@ -1236,6 +1226,17 @@ class MainWindow(QMainWindow):
             "imageHeight": self.raw_h,
             "imageWidth": self.raw_w
         }
+        if self._annotation_image == osp.normcase(osp.abspath(self.current_img)):
+            save_data = deepcopy(self._annotation_data)
+            # Empty records have no drawable geometry, but must not disappear
+            # merely because the document was opened and saved.
+            for index, record in self._annotation_empty_shapes:
+                shapes.insert(min(index, len(shapes)), deepcopy(record))
+            for name, value in defaults.items():
+                save_data.setdefault(name, value)
+            save_data["shapes"] = shapes
+        else:
+            save_data = defaults
 
         atomic_write_annotation(
             filename, json.dumps(save_data).encode("utf-8"),
@@ -1287,31 +1288,32 @@ class MainWindow(QMainWindow):
         return "."
 
     def loadAnno(self, filename):
-        with open(filename,'r') as f:
+        with open(filename, "r", encoding="utf-8") as f:
             data = json.load(f)
-        for shape in data['shapes']:
-            label = shape["label"]
-            try:
-                ttt = int(label)
-                label = self.category_list[ttt]
-            except:
-                pass
+        self._annotation_data = deepcopy(data)
+        self._annotation_image = osp.normcase(osp.abspath(self.current_img))
+        self._annotation_empty_shapes = []
+        for index, record in enumerate(data['shapes']):
+            label = str(record["label"])
+            if getattr(self, "legacy_label_indices", False) and label.isdecimal():
+                category_index = int(label)
+                if category_index < len(self.category_list):
+                    label = self.category_list[category_index]
 
-            points = shape["points"]
-            shape_type = shape["shape_type"]
-            flags = shape["flags"]
-            group_id = shape["group_id"]
+            points = record["points"]
             if not points:
-                # skip point-empty shape
+                self._annotation_empty_shapes.append((index, deepcopy(record)))
                 continue
             shape = Shape(
                 label=label,
-                shape_type=shape_type,
-                group_id=group_id,
-                flags=flags
+                shape_type=record.get("shape_type"),
+                group_id=record.get("group_id"),
+                flags=deepcopy(record.get("flags", {})),
             )
-            for x, y in points:
-                shape.addPoint(QtCore.QPointF(x, y))
+            shape.other_data = deepcopy(record)
+            shape._annotation_source = deepcopy(record)
+            # File coordinates are data, not the click-to-close drawing gesture.
+            shape.points = [QtCore.QPointF(x, y) for x, y in points]
             shape.close()
             self.addLabel(shape)
         self.canvas.loadShapes([item.shape() for item in self.labelList])
@@ -1413,6 +1415,9 @@ class MainWindow(QMainWindow):
             self.canvas.update()
             
     def loadImg(self):
+        self._annotation_data = None
+        self._annotation_image = None
+        self._annotation_empty_shapes = []
         self.raw_h, self.raw_w = cv2.imread(self.current_img).shape[:2]
         pixmap = QPixmap(self.current_img)
         # Keep an unmodified copy for brightness/contrast adjustments
@@ -1887,11 +1892,12 @@ class MainWindow(QMainWindow):
             text = items[0].data(Qt.UserRole)
         flags = {}
         group_id = None
+        description = ""
         if not text:
             previous_text = self.labelDialog.edit.text()
             xx = self.labelDialog.popUp(text)
             if len(xx) == 4:
-                text, flags, group_id, _ = xx
+                text, flags, group_id, description = xx
             else:
                 text, flags, group_id = xx
             if not text:
@@ -1909,6 +1915,7 @@ class MainWindow(QMainWindow):
             self.labelList.clearSelection()
             shape = self.canvas.setLastLabel(text, flags)
             shape.group_id = group_id
+            shape.other_data["description"] = description
             self.addLabel(shape)
             self.actions.editMode.setEnabled(True)
             self.actions.undoLastPoint.setEnabled(False)
@@ -2365,11 +2372,13 @@ class MainWindow(QMainWindow):
             text=shape.label,
             flags=shape.flags,
             group_id=shape.group_id,
+            description=shape.other_data.get("description"),
         )
         if len(xx) == 4:
-            text, flags, group_id,_ = xx
+            text, flags, group_id, description = xx
         else:
             text, flags, group_id = xx
+            description = shape.other_data.get("description")
         if text is None:
             return
         if not self.validateLabel(text):
@@ -2383,6 +2392,8 @@ class MainWindow(QMainWindow):
         shape.label = text
         shape.flags = flags
         shape.group_id = group_id
+        if "description" in shape.other_data or description:
+            shape.other_data["description"] = description
 
         self._update_shape_color(shape)
         if shape.group_id is None:
@@ -2688,6 +2699,14 @@ def get_parser():
         default=720,
     )
     parser.add_argument(
+        "--legacy-label-indices",
+        action="store_true",
+        help=(
+            "Explicitly map nonnegative integer labels to categories.txt entries "
+            "when loading legacy annotations. Default: preserve label text."
+        ),
+    )
+    parser.add_argument(
         "--review",
         action="store_true",
         help="Configure and start an annotation review session.",
@@ -2733,6 +2752,7 @@ if __name__ == '__main__':
         model_type=args.model_type,
         keep_input_size=args.keep_input_size,
         max_size=args.max_size,
+        legacy_label_indices=args.legacy_label_indices,
     )
     if args.review:
         from review.dialog import ReviewSessionDialog
