@@ -194,22 +194,18 @@ class MainWindow(QMainWindow):
         self.img_progress_bar.setMinimum(0)
         self.img_progress_bar.setMaximum(1)
         self.img_progress_bar.setValue(0)
-        self.button_proposal1 = QPushButton('Proposal1', self)
+        self.button_proposal1 = QPushButton('1', self)
         self.button_proposal1.clicked.connect(self.choose_proposal1)
-        self.button_proposal1.setShortcut('1')
-        self.button_proposal2 = QPushButton('Proposal2', self)
+        self.button_proposal2 = QPushButton('2', self)
         self.button_proposal2.clicked.connect(self.choose_proposal2)
-        self.button_proposal2.setShortcut('2')
-        self.button_proposal3 = QPushButton('Proposal3', self)
+        self.button_proposal3 = QPushButton('3', self)
         self.button_proposal3.clicked.connect(self.choose_proposal3)
-        self.button_proposal3.setShortcut('3')
-        self.button_proposal4 = QPushButton('Proposal4', self)
-        self.button_proposal4.clicked.connect(self.choose_proposal4)
-        self.button_proposal4.setShortcut('4')
-        self.button_proposal_list = [self.button_proposal1, self.button_proposal2, self.button_proposal3, self.button_proposal4]
+        self.button_proposal_list = [self.button_proposal1, self.button_proposal2, self.button_proposal3]
         
-        self.class_on_flag = True
-        self.class_on_text = QLabel("Class On", self)
+        for index, button in enumerate(self.button_proposal_list, start=1):
+            button.setToolTip(f"Select proposal {index} with {index} while SAM proposals are active")
+            button.setEnabled(False)
+        self.labels_visibility_text = QLabel("Labels shown", self)
         self.img_name = QLabel("", self)
         self.img_name.setAlignment(Qt.AlignCenter)
         self.img_name.setStyleSheet("font-size: 10pt; color: black;")
@@ -277,7 +273,7 @@ class MainWindow(QMainWindow):
         self.button_last.resize(int(0.1 * global_w),int(0.04 * global_h))
         self.button_jump.move(int(0.12 * global_w), int(0.89 * global_h))
         self.button_jump.resize(int(0.05 * global_w),int(0.04 * global_h))
-        self.class_on_text.move(int(0.01 * global_w), int(0.94 * global_h))
+        self.labels_visibility_text.move(int(0.01 * global_w), int(0.94 * global_h))
         # place filename label centered above the scroll area
         self.img_name.move(int(0.02 * global_w), int(0.09 * global_h))
         self.img_name.resize(int(0.64 * global_w), int(0.03 * global_h))
@@ -290,8 +286,6 @@ class MainWindow(QMainWindow):
         self.button_proposal2.move(int(0.50 * global_w), int(0.84 * global_h))
         self.button_proposal3.resize(int(0.17 * global_w),int(0.14 * global_h))
         self.button_proposal3.move(int(0.67 * global_w), int(0.84 * global_h))
-        self.button_proposal4.resize(int(0.17 * global_w),int(0.14 * global_h))
-        self.button_proposal4.move(int(0.84 * global_w), int(0.84 * global_h))
 
         # ── Brightness / Contrast – vertical panel between image view and dock ──
         # Reserve the area from 67.5% to 78.5% of the window for two equal columns.
@@ -475,12 +469,14 @@ class MainWindow(QMainWindow):
             enabled=True,
         )
         
-        self.switchClass = action(
-            self.tr("Class On/Off"),
-            lambda: self.clickSwitchClass(),
-            'none',
+        self.showLabels = action(
+            self.tr("Show labels"),
+            self.setLabelsVisible,
+            None,
             "objects",
-            self.tr("Class On/Off"),
+            self.tr("Show or hide polygon names and object IDs; keep polygons editable"),
+            checkable=True,
+            checked=True,
             enabled=True,
         )
 
@@ -604,7 +600,7 @@ class MainWindow(QMainWindow):
             categoryFile=categoryFile,
             imageDirectory=imageDirectory,
             saveDirectory=saveDirectory,
-            switchClass=self.switchClass,
+            showLabels=self.showLabels,
             loadSAM=LoadSAM,
             #autoSeg=AutoSeg,
             promptSeg=promptSeg,
@@ -672,7 +668,7 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(categoryFile)
         self.toolbar.addAction(imageDirectory)
         self.toolbar.addAction(saveDirectory)
-        self.toolbar.addAction(self.switchClass)
+        self.toolbar.addAction(self.showLabels)
         self.toolbar.addAction(LoadSAM)
         #self.toolbar.addAction(AutoSeg)
         self.toolbar.addAction(promptSeg)
@@ -717,6 +713,9 @@ class MainWindow(QMainWindow):
         self.canvas.actions = self.actions
         # preview state (no interactive reduce slider)
         self._updateResponsiveLayout(self.width(), self.height())
+        # Filter bare digits before the canvas handles them. Unlike an active
+        # QShortcut, this leaves text-entry keys available to their widgets.
+        QApplication.instance().installEventFilter(self)
 
     def configureReviewSession(self, validation_report):
         from review.panel import ReviewPanel
@@ -1391,30 +1390,24 @@ class MainWindow(QMainWindow):
 
 
     def choose_proposal1(self):
-        if len(self.sam_mask_proposal) > 0:
-            self.sam_mask = self.sam_mask_proposal[0]
-            self.canvas.setHiding()
-            self.canvas.update()
+        self.selectSamProposal(0)
 
     def choose_proposal2(self):
-        if len(self.sam_mask_proposal) > 1:
-            self.sam_mask = self.sam_mask_proposal[1]
-            self.canvas.setHiding()
-            self.canvas.update()
+        self.selectSamProposal(1)
             
     def choose_proposal3(self):
-        if len(self.sam_mask_proposal) > 2:
-            self.sam_mask = self.sam_mask_proposal[2]
-            self.canvas.setHiding()
-            self.canvas.update()
-            
-    def choose_proposal4(self):
-        if len(self.sam_mask_proposal) > 3:
-            self.sam_mask = self.sam_mask_proposal[3]
+        self.selectSamProposal(2)
+
+    def selectSamProposal(self, index):
+        if 0 <= index < min(3, len(self.sam_mask_proposal)):
+            self.sam_mask = self.sam_mask_proposal[index]
             self.canvas.setHiding()
             self.canvas.update()
             
     def loadImg(self):
+        self.sam_mask = []
+        self.sam_mask_proposal = []
+        self.show_proposals()
         self._annotation_data = None
         self._annotation_image = None
         self._annotation_empty_shapes = []
@@ -1499,13 +1492,38 @@ class MainWindow(QMainWindow):
             return directory
 
 
-    def clickSwitchClass(self):
-        if self.class_on_flag:
-            self.class_on_flag = False
-            self.class_on_text.setText('Class Off')
-        else:
-            self.class_on_flag = True
-            self.class_on_text.setText('Class On')
+    def setLabelsVisible(self, visible):
+        self.canvas.show_labels = bool(visible)
+        self.labels_visibility_text.setText("Labels shown" if visible else "Labels hidden")
+        self.labels_visibility_text.adjustSize()
+        self.canvas.update()
+
+    def eventFilter(self, watched, event):
+        if (
+            event.type() == QtCore.QEvent.KeyPress
+            and Qt.Key_0 <= event.key() <= Qt.Key_9
+            and event.modifiers() in (Qt.NoModifier, Qt.KeypadModifier)
+            and isinstance(watched, QWidget)
+            and (watched is self or self.isAncestorOf(watched))
+            and self.isActiveWindow()
+            and QApplication.activeModalWidget() is None
+            and QApplication.activePopupWidget() is None
+        ):
+            from review import is_editable_focus
+
+            widget = watched
+            while widget is not None and widget is not self:
+                if is_editable_focus(widget) or isinstance(widget, QtWidgets.QAbstractSlider):
+                    return super().eventFilter(watched, event)
+                widget = widget.parentWidget()
+            if not event.isAutoRepeat():
+                digit = event.key() - Qt.Key_0
+                if self.sam_mask_proposal and 1 <= digit <= 3:
+                    self.selectSamProposal(digit - 1)
+                else:
+                    self.toggleObjectPolygons(digit)
+            return True
+        return super().eventFilter(watched, event)
 
 
     def clickCategoryChoose(self):
@@ -1590,27 +1608,45 @@ class MainWindow(QMainWindow):
         return max_id
         
     def show_proposals(self, masks=None, flag=1):
-        if flag != 1:
+        if flag == 1:
+            self.sam_mask = []
+            self.sam_mask_proposal = []
+        for index, button in enumerate(self.button_proposal_list, start=1):
+            button.setText(str(index))
+            button.setIcon(QIcon())
+            button._proposal_image_size = QSize()
+            button.setEnabled(False)
+            # Digit routing belongs to eventFilter, including after reset.
+            button.setShortcut(QtGui.QKeySequence())
+        if flag != 1 and masks is not None:
             img = cv2.imread(self.current_img)
             if len(img.shape) == 2:
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            for msk_idx in range(masks.shape[0]):
+            for msk_idx in range(min(masks.shape[0], len(self.button_proposal_list))):
                 tmp_mask = masks[msk_idx]
                 tmp_vis = img.copy()
                 tmp_vis[tmp_mask > 0] = 0.5 * tmp_vis[tmp_mask > 0] + 0.5 * np.array([30,30,220])
-                tmp_vis = cv2.resize(tmp_vis,(int(0.17 * global_w),int(0.14 * global_h)))
+                button = self.button_proposal_list[msk_idx]
                 tmp_vis = tmp_vis.astype(np.uint8)
                 pixmap = QPixmap.fromImage(QImage(tmp_vis, tmp_vis.shape[1], tmp_vis.shape[0], tmp_vis.shape[1] * 3 , QImage.Format_RGB888))
-                #self.button_proposal_list[msk_idx].setPixmap(pixmap)
-                self.button_proposal_list[msk_idx].setIcon(QIcon(pixmap))
-                self.button_proposal_list[msk_idx].setIconSize(QSize(tmp_vis.shape[1], tmp_vis.shape[0]))
-                self.button_proposal_list[msk_idx].setShortcut(str(msk_idx+1))
-        else:
-            for idx, button_proposal in enumerate(self.button_proposal_list):
-                button_proposal.setText('proprosal{}'.format(idx))
-                button_proposal.setIconSize(QSize(0,0))
-                self.button_proposal_list[idx].setShortcut(str(idx+1))
+                button.setIcon(QIcon(pixmap))
+                button._proposal_image_size = pixmap.size()
+                self.resizeProposalPreview(button)
+                button.setEnabled(True)
+
+    def resizeProposalPreview(self, button):
+        source_size = getattr(button, "_proposal_image_size", QSize())
+        if source_size.isEmpty():
+            return
+        # Reserve space for the digit, icon/text gap, and button frame. Keep
+        # the full image visible instead of stretching it to the card shape.
+        number_width = button.fontMetrics().horizontalAdvance(button.text())
+        available = QSize(
+            max(1, button.contentsRect().width() - number_width - 24),
+            max(1, button.contentsRect().height() - 12),
+        )
+        button.setIconSize(source_size.scaled(available, Qt.KeepAspectRatio))
 
     def transform_input(self, image, box=None, points=None):
         if self.keep_input_size == True:
@@ -1813,16 +1849,15 @@ class MainWindow(QMainWindow):
         if len(self.sam_mask) > 0:
             label = 'Object'
             group_id = self.getMaxId() + 1
-            if self.class_on_flag:
-                xx = self.labelDialog.popUp(
-                    text=label,
-                    flags={},
-                    group_id=group_id,
-                )
-                if len(xx) == 4:
-                    label, _, group_id,_ = xx
-                else:
-                    label, _, group_id = xx
+            xx = self.labelDialog.popUp(
+                text=label,
+                flags={},
+                group_id=group_id,
+            )
+            if len(xx) == 4:
+                label, _, group_id,_ = xx
+            else:
+                label, _, group_id = xx
             if label == None:
                 label = 'Object'
             if type(group_id) != int:
@@ -2050,7 +2085,7 @@ class MainWindow(QMainWindow):
         image_height = max(300, image_bottom - self.scrollArea.y())
         self.scrollArea.resize(self.scrollArea.width(), image_height)
 
-        # The lower-left progress/navigation region and the four proposal
+        # The lower-left progress/navigation region and the three proposal
         # cards share a bottom edge and never extend beneath the side panel.
         proposal_left = max(500, int(min(window_width, 1600) * 0.33))
         proposal_right = panel_left - margin
@@ -2058,7 +2093,7 @@ class MainWindow(QMainWindow):
         proposal_width = max(
             80,
             int(
-                (proposal_right - proposal_left - (3 * proposal_gap)) / 4
+                (proposal_right - proposal_left - (2 * proposal_gap)) / 3
             ),
         )
         for index, proposal in enumerate(self.button_proposal_list):
@@ -2068,6 +2103,7 @@ class MainWindow(QMainWindow):
                 proposal_width,
                 proposal_height,
             )
+            self.resizeProposalPreview(proposal)
 
         navigation_width = max(300, proposal_left - margin - 12)
         progress_height = 40
@@ -2094,7 +2130,7 @@ class MainWindow(QMainWindow):
             side_width,
             38,
         )
-        self.class_on_text.move(12, nav_top + 48)
+        self.labels_visibility_text.move(12, nav_top + 48)
 
     # React to canvas signals.
     def shapeSelectionChanged(self, selected_shapes):
@@ -2465,6 +2501,17 @@ class MainWindow(QMainWindow):
             return
         show_all = not any(item.checkState() == Qt.Checked for item in items)
         self.togglePolygons(show_all)
+
+    def toggleObjectPolygons(self, group_id):
+        """Toggle all polygons for one literal single-digit group/object ID."""
+        items = [
+            item for item in self.labelList
+            if not isinstance(item.shape().group_id, bool)
+            and str(item.shape().group_id) == str(group_id)
+        ]
+        show = not any(item.checkState() == Qt.Checked for item in items)
+        for item in items:
+            item.setCheckState(Qt.Checked if show else Qt.Unchecked)
 
     def _update_shape_color(self, shape):
         # r, g, b = self._get_rgb_by_label(shape.label)

@@ -65,6 +65,7 @@ class AnnotationSavingTests(unittest.TestCase):
             labelList=[], canvas=Mock(), img_progress_bar=Mock(), img_name=Mock(),
             category_list=[], brightness_slider=Mock(), contrast_slider=Mock(),
             button_invert_colours=QtWidgets.QPushButton(),
+            button_proposal_list=[],
             tr=lambda value: value, exportReviewCsv=Mock(), _activateReviewItem=Mock(),
         )
         self.window.brightness_slider.value.return_value = 0
@@ -72,7 +73,7 @@ class AnnotationSavingTests(unittest.TestCase):
         for name in ("saveFile", "_saveFile", "saveLabels", "setClean", "_showSaveError",
                      "recordReviewDecision", "_persistCurrentReviewState",
                      "_replaceReviewItem", "_reviewProgress", "navigateImage",
-                     "navigateReviewTarget", "loadImg", "loadAnno", "closeEvent"):
+                     "navigateReviewTarget", "loadImg", "loadAnno", "closeEvent", "show_proposals"):
             setattr(self.window, name, MethodType(getattr(MainWindow, name), self.window))
         self.window.addLabel = lambda shape: self.window.labelList.append(
             SimpleNamespace(shape=lambda: shape)

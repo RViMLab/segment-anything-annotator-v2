@@ -151,6 +151,26 @@ such as Reduce Points, merge, and subtract are tracked separately in
 
 ### Image display controls
 
+**Show labels** replaces the old Class On/Off button. Uncheck it to hide
+polygon names and group/object-ID text while keeping outlines and vertex
+handles visible and editable. This preference stays active when moving between
+frames and does not change saved annotations. Accepting a SAM proposal always
+opens the label/group dialog, whether labels are shown or hidden.
+
+Press a digit **0–9** to toggle every polygon with that **group/object ID**
+(not its class label or category-list position). For example, **H** hides all
+polygons, then **3** shows object 3; another **3** hides it again. If part of an
+object is visible, its digit hides the whole object. Digits with no matching
+object do nothing. On image navigation, polygons start visible as usual.
+These shortcuts work in annotation and review mode, and leave numeric typing
+in text fields and dialogs alone. While SAM proposals are active, **1–3**
+select **Proposal 1–3**, corresponding to SAM results 0–2, instead of toggling
+objects. **0 and 4–9** still toggle objects. Accepting/rejecting proposals or
+changing frames restores all digits to object visibility. There are three
+proposal buttons labelled **1**, **2**, and **3**, disabled when no proposals
+are active. Previews preserve the source image aspect ratio, including after
+window resizing, with space reserved for each button's digit.
+
 Use **Invert colours** below **Reset B/C** to toggle a colour-negative preview,
 for example when inspecting difficult endolaser frames. Inversion applies after
 brightness and contrast and stays active when navigating between frames. Click
@@ -378,7 +398,8 @@ SQLite record.
 | `C` | Circle prompt mode |
 | `A` | Accept the selected proposal |
 | `R` | Reject proposals and clear prompts |
-| `1`–`4` | Select a mask proposal |
+| `1`–`3` | Select Proposal 1–3 while SAM proposals are active |
+| `0`–`9` | Hide/show the matching group/object ID (1–3 select active SAM proposals first) |
 | `E` | Edit polygon mode |
 | Arrow keys | Nudge a selected polygon |
 | `D` | Delete selected polygons |
