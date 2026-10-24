@@ -167,7 +167,9 @@ in text fields and dialogs alone. While SAM proposals are active, **1–3**
 select **Proposal 1–3**, corresponding to SAM results 0–2, instead of toggling
 objects. **0 and 4–9** still toggle objects. Accepting/rejecting proposals or
 changing frames restores all digits to object visibility. There are three
-proposal buttons, disabled when no proposals are active.
+proposal buttons labelled **1**, **2**, and **3**, disabled when no proposals
+are active. Previews preserve the source image aspect ratio, including after
+window resizing, with space reserved for each button's digit.
 
 Use **Invert colours** below **Reset B/C** to toggle a colour-negative preview,
 for example when inspecting difficult endolaser frames. Inversion applies after

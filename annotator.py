@@ -194,11 +194,11 @@ class MainWindow(QMainWindow):
         self.img_progress_bar.setMinimum(0)
         self.img_progress_bar.setMaximum(1)
         self.img_progress_bar.setValue(0)
-        self.button_proposal1 = QPushButton('Proposal 1', self)
+        self.button_proposal1 = QPushButton('1', self)
         self.button_proposal1.clicked.connect(self.choose_proposal1)
-        self.button_proposal2 = QPushButton('Proposal 2', self)
+        self.button_proposal2 = QPushButton('2', self)
         self.button_proposal2.clicked.connect(self.choose_proposal2)
-        self.button_proposal3 = QPushButton('Proposal 3', self)
+        self.button_proposal3 = QPushButton('3', self)
         self.button_proposal3.clicked.connect(self.choose_proposal3)
         self.button_proposal_list = [self.button_proposal1, self.button_proposal2, self.button_proposal3]
         
@@ -1612,8 +1612,9 @@ class MainWindow(QMainWindow):
             self.sam_mask = []
             self.sam_mask_proposal = []
         for index, button in enumerate(self.button_proposal_list, start=1):
-            button.setText(f"Proposal {index}")
+            button.setText(str(index))
             button.setIcon(QIcon())
+            button._proposal_image_size = QSize()
             button.setEnabled(False)
             # Digit routing belongs to eventFilter, including after reset.
             button.setShortcut(QtGui.QKeySequence())
@@ -1627,13 +1628,25 @@ class MainWindow(QMainWindow):
                 tmp_vis = img.copy()
                 tmp_vis[tmp_mask > 0] = 0.5 * tmp_vis[tmp_mask > 0] + 0.5 * np.array([30,30,220])
                 button = self.button_proposal_list[msk_idx]
-                tmp_vis = cv2.resize(tmp_vis, (max(1, button.width()), max(1, button.height())))
                 tmp_vis = tmp_vis.astype(np.uint8)
                 pixmap = QPixmap.fromImage(QImage(tmp_vis, tmp_vis.shape[1], tmp_vis.shape[0], tmp_vis.shape[1] * 3 , QImage.Format_RGB888))
-                #self.button_proposal_list[msk_idx].setPixmap(pixmap)
-                self.button_proposal_list[msk_idx].setIcon(QIcon(pixmap))
-                self.button_proposal_list[msk_idx].setIconSize(QSize(tmp_vis.shape[1], tmp_vis.shape[0]))
+                button.setIcon(QIcon(pixmap))
+                button._proposal_image_size = pixmap.size()
+                self.resizeProposalPreview(button)
                 button.setEnabled(True)
+
+    def resizeProposalPreview(self, button):
+        source_size = getattr(button, "_proposal_image_size", QSize())
+        if source_size.isEmpty():
+            return
+        # Reserve space for the digit, icon/text gap, and button frame. Keep
+        # the full image visible instead of stretching it to the card shape.
+        number_width = button.fontMetrics().horizontalAdvance(button.text())
+        available = QSize(
+            max(1, button.contentsRect().width() - number_width - 24),
+            max(1, button.contentsRect().height() - 12),
+        )
+        button.setIconSize(source_size.scaled(available, Qt.KeepAspectRatio))
 
     def transform_input(self, image, box=None, points=None):
         if self.keep_input_size == True:
@@ -2090,6 +2103,7 @@ class MainWindow(QMainWindow):
                 proposal_width,
                 proposal_height,
             )
+            self.resizeProposalPreview(proposal)
 
         navigation_width = max(300, proposal_left - margin - 12)
         progress_height = 40

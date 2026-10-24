@@ -108,7 +108,7 @@ class PolygonVisibilityTests(unittest.TestCase):
         self.assertEqual(len(self.window.button_proposal_list), 3)
         self.assertFalse(hasattr(self.window, "button_proposal4"))
         for index, button in enumerate(self.window.button_proposal_list):
-            self.assertEqual(button.text(), f"Proposal {index + 1}")
+            self.assertEqual(button.text(), str(index + 1))
             self.assertTrue(button.isEnabled())
             self.assertTrue(button.shortcut().isEmpty())
             QtTest.QTest.keyClick(self.window.canvas, QtCore.Qt.Key_1 + index)
@@ -126,9 +126,34 @@ class PolygonVisibilityTests(unittest.TestCase):
                 str(item.shape().group_id) == str(digit) for item in self.window.labelList
             ], digit)
 
+    def test_proposal_previews_keep_image_ratio_and_room_for_digits_on_resize(self):
+        for width, height in ((640, 360), (360, 640), (480, 480)):
+            source = self.root / f"preview-{width}-{height}.png"
+            Image.new("RGB", (width, height), "green").save(source)
+            self.window.current_img = str(source)
+            masks = np.zeros((3, height, width), dtype=np.uint8)
+            self.window.show_proposals(masks, 0)
+            for window_width in (1000, 1600, 1920):
+                self.window._updateResponsiveLayout(window_width, 1600)
+                for index, button in enumerate(self.window.button_proposal_list, start=1):
+                    self.assertEqual(button.text(), str(index))
+                    self.assertIn(f"proposal {index}", button.toolTip())
+                    size = button.iconSize()
+                    # Integer pixel rounding can introduce at most one pixel
+                    # of error along the dimension fitted by aspect ratio.
+                    self.assertLessEqual(abs(size.width() * height - size.height() * width),
+                                         max(width, height))
+                    digit_width = button.fontMetrics().horizontalAdvance(button.text())
+                    self.assertLessEqual(size.width() + digit_width + 24, button.width())
+                    self.assertLessEqual(size.height() + 12, button.height())
+                    actual = button.icon().pixmap(size).size()
+                    self.assertLessEqual(abs(actual.width() * height - actual.height() * width),
+                                         max(width, height))
+                    self.assertTrue(button.isEnabled())
+
     def assert_proposal_buttons_inactive(self):
         self.assertEqual([button.text() for button in self.window.button_proposal_list],
-                         ["Proposal 1", "Proposal 2", "Proposal 3"])
+                         ["1", "2", "3"])
         for button in self.window.button_proposal_list:
             self.assertFalse(button.isEnabled())
             self.assertTrue(button.shortcut().isEmpty())
