@@ -151,7 +151,7 @@ class Shape(object):
         x2, y2 = pt2.x(), pt2.y()
         return QtCore.QRectF(x1, y1, x2 - x1, y2 - y1)
 
-    def paint(self, painter, flag = 1, proposal_flag = 0):
+    def paint(self, painter, flag = 1, proposal_flag = 0, show_label=True):
         if self.points:
             color = (
                 self.select_line_color if self.selected else self.line_color
@@ -222,7 +222,7 @@ class Shape(object):
                         QtGui.QColor(30, 30, 200,100)
                     )
                 painter.fillPath(line_path, color)
-            if proposal_flag == 0:
+            if proposal_flag == 0 and show_label:
                 cx, cy = self.get_center_points(self.points)
                 if self.group_id is not None:
                     painter.drawText(int(cx), int(cy), self.label + ',' + str(self.group_id))

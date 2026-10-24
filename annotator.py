@@ -196,20 +196,21 @@ class MainWindow(QMainWindow):
         self.img_progress_bar.setValue(0)
         self.button_proposal1 = QPushButton('Proposal1', self)
         self.button_proposal1.clicked.connect(self.choose_proposal1)
-        self.button_proposal1.setShortcut('1')
+        self.button_proposal1.setShortcut('Alt+1')
         self.button_proposal2 = QPushButton('Proposal2', self)
         self.button_proposal2.clicked.connect(self.choose_proposal2)
-        self.button_proposal2.setShortcut('2')
+        self.button_proposal2.setShortcut('Alt+2')
         self.button_proposal3 = QPushButton('Proposal3', self)
         self.button_proposal3.clicked.connect(self.choose_proposal3)
-        self.button_proposal3.setShortcut('3')
+        self.button_proposal3.setShortcut('Alt+3')
         self.button_proposal4 = QPushButton('Proposal4', self)
         self.button_proposal4.clicked.connect(self.choose_proposal4)
-        self.button_proposal4.setShortcut('4')
+        self.button_proposal4.setShortcut('Alt+4')
         self.button_proposal_list = [self.button_proposal1, self.button_proposal2, self.button_proposal3, self.button_proposal4]
         
-        self.class_on_flag = True
-        self.class_on_text = QLabel("Class On", self)
+        for index, button in enumerate(self.button_proposal_list, start=1):
+            button.setToolTip(f"Select proposal {index} (Alt+{index})")
+        self.labels_visibility_text = QLabel("Labels shown", self)
         self.img_name = QLabel("", self)
         self.img_name.setAlignment(Qt.AlignCenter)
         self.img_name.setStyleSheet("font-size: 10pt; color: black;")
@@ -277,7 +278,7 @@ class MainWindow(QMainWindow):
         self.button_last.resize(int(0.1 * global_w),int(0.04 * global_h))
         self.button_jump.move(int(0.12 * global_w), int(0.89 * global_h))
         self.button_jump.resize(int(0.05 * global_w),int(0.04 * global_h))
-        self.class_on_text.move(int(0.01 * global_w), int(0.94 * global_h))
+        self.labels_visibility_text.move(int(0.01 * global_w), int(0.94 * global_h))
         # place filename label centered above the scroll area
         self.img_name.move(int(0.02 * global_w), int(0.09 * global_h))
         self.img_name.resize(int(0.64 * global_w), int(0.03 * global_h))
@@ -475,12 +476,14 @@ class MainWindow(QMainWindow):
             enabled=True,
         )
         
-        self.switchClass = action(
-            self.tr("Class On/Off"),
-            lambda: self.clickSwitchClass(),
-            'none',
+        self.showLabels = action(
+            self.tr("Show labels"),
+            self.setLabelsVisible,
+            None,
             "objects",
-            self.tr("Class On/Off"),
+            self.tr("Show or hide polygon names and object IDs; keep polygons editable"),
+            checkable=True,
+            checked=True,
             enabled=True,
         )
 
@@ -604,7 +607,7 @@ class MainWindow(QMainWindow):
             categoryFile=categoryFile,
             imageDirectory=imageDirectory,
             saveDirectory=saveDirectory,
-            switchClass=self.switchClass,
+            showLabels=self.showLabels,
             loadSAM=LoadSAM,
             #autoSeg=AutoSeg,
             promptSeg=promptSeg,
@@ -672,7 +675,7 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(categoryFile)
         self.toolbar.addAction(imageDirectory)
         self.toolbar.addAction(saveDirectory)
-        self.toolbar.addAction(self.switchClass)
+        self.toolbar.addAction(self.showLabels)
         self.toolbar.addAction(LoadSAM)
         #self.toolbar.addAction(AutoSeg)
         self.toolbar.addAction(promptSeg)
@@ -717,6 +720,9 @@ class MainWindow(QMainWindow):
         self.canvas.actions = self.actions
         # preview state (no interactive reduce slider)
         self._updateResponsiveLayout(self.width(), self.height())
+        # Filter bare digits before the canvas handles them. Unlike an active
+        # QShortcut, this leaves text-entry keys available to their widgets.
+        QApplication.instance().installEventFilter(self)
 
     def configureReviewSession(self, validation_report):
         from review.panel import ReviewPanel
@@ -1499,13 +1505,34 @@ class MainWindow(QMainWindow):
             return directory
 
 
-    def clickSwitchClass(self):
-        if self.class_on_flag:
-            self.class_on_flag = False
-            self.class_on_text.setText('Class Off')
-        else:
-            self.class_on_flag = True
-            self.class_on_text.setText('Class On')
+    def setLabelsVisible(self, visible):
+        self.canvas.show_labels = bool(visible)
+        self.labels_visibility_text.setText("Labels shown" if visible else "Labels hidden")
+        self.labels_visibility_text.adjustSize()
+        self.canvas.update()
+
+    def eventFilter(self, watched, event):
+        if (
+            event.type() == QtCore.QEvent.KeyPress
+            and Qt.Key_0 <= event.key() <= Qt.Key_9
+            and event.modifiers() in (Qt.NoModifier, Qt.KeypadModifier)
+            and isinstance(watched, QWidget)
+            and (watched is self or self.isAncestorOf(watched))
+            and self.isActiveWindow()
+            and QApplication.activeModalWidget() is None
+            and QApplication.activePopupWidget() is None
+        ):
+            from review import is_editable_focus
+
+            widget = watched
+            while widget is not None and widget is not self:
+                if is_editable_focus(widget) or isinstance(widget, QtWidgets.QAbstractSlider):
+                    return super().eventFilter(watched, event)
+                widget = widget.parentWidget()
+            if not event.isAutoRepeat():
+                self.toggleObjectPolygons(event.key() - Qt.Key_0)
+            return True
+        return super().eventFilter(watched, event)
 
 
     def clickCategoryChoose(self):
@@ -1813,16 +1840,15 @@ class MainWindow(QMainWindow):
         if len(self.sam_mask) > 0:
             label = 'Object'
             group_id = self.getMaxId() + 1
-            if self.class_on_flag:
-                xx = self.labelDialog.popUp(
-                    text=label,
-                    flags={},
-                    group_id=group_id,
-                )
-                if len(xx) == 4:
-                    label, _, group_id,_ = xx
-                else:
-                    label, _, group_id = xx
+            xx = self.labelDialog.popUp(
+                text=label,
+                flags={},
+                group_id=group_id,
+            )
+            if len(xx) == 4:
+                label, _, group_id,_ = xx
+            else:
+                label, _, group_id = xx
             if label == None:
                 label = 'Object'
             if type(group_id) != int:
@@ -2094,7 +2120,7 @@ class MainWindow(QMainWindow):
             side_width,
             38,
         )
-        self.class_on_text.move(12, nav_top + 48)
+        self.labels_visibility_text.move(12, nav_top + 48)
 
     # React to canvas signals.
     def shapeSelectionChanged(self, selected_shapes):
@@ -2465,6 +2491,17 @@ class MainWindow(QMainWindow):
             return
         show_all = not any(item.checkState() == Qt.Checked for item in items)
         self.togglePolygons(show_all)
+
+    def toggleObjectPolygons(self, group_id):
+        """Toggle all polygons for one literal single-digit group/object ID."""
+        items = [
+            item for item in self.labelList
+            if not isinstance(item.shape().group_id, bool)
+            and str(item.shape().group_id) == str(group_id)
+        ]
+        show = not any(item.checkState() == Qt.Checked for item in items)
+        for item in items:
+            item.setCheckState(Qt.Checked if show else Qt.Unchecked)
 
     def _update_shape_color(self, shape):
         # r, g, b = self._get_rgb_by_label(shape.label)

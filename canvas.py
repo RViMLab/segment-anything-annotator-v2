@@ -69,6 +69,7 @@ class Canvas(QtWidgets.QWidget):
         # Initialise local state.
         self.mode = self.EDIT
         self.shapes = []
+        self.show_labels = True
         self.shapesBackups = []
         self.construction_shapes = []
         self.currentConstruction = None
@@ -1036,19 +1037,19 @@ class Canvas(QtWidgets.QWidget):
                 shape
             ):
                 shape.fill = shape.selected or shape == self.hShape
-                shape.paint(p)
+                shape.paint(p, show_label=self.show_labels)
         if self.current:
-            self.current.paint(p)
+            self.current.paint(p, show_label=self.show_labels)
         if self.currentPos:
-            self.currentPos.paint(p,flag=1)
+            self.currentPos.paint(p, flag=1, show_label=self.show_labels)
         if self.currentNeg:
-            self.currentNeg.paint(p,flag=0)
+            self.currentNeg.paint(p, flag=0, show_label=self.show_labels)
         if self.currentBox:
-            self.currentBox.paint(p)
+            self.currentBox.paint(p, show_label=self.show_labels)
         if self.currentCircle:
-            self.currentCircle.paint(p)
+            self.currentCircle.paint(p, show_label=self.show_labels)
         if self.drawing() and self.line.points and self.createMode in ["rectangle", "circle"]:
-            self.line.paint(p)
+            self.line.paint(p, show_label=self.show_labels)
 
         # Draw completed construction shapes
         if hasattr(self, 'construction_shapes') and self.construction_shapes:
@@ -1063,7 +1064,7 @@ class Canvas(QtWidgets.QWidget):
             self.paintConstructionShape(p, temp_shape)
         if self.selectedShapesCopy:
             for s in self.selectedShapesCopy:
-                s.paint(p)
+                s.paint(p, show_label=self.show_labels)
 
         if (
             self.fillDrawing()
@@ -1074,7 +1075,7 @@ class Canvas(QtWidgets.QWidget):
             drawing_shape = self.current.copy()
             drawing_shape.addPoint(self.line[1])
             drawing_shape.fill = True
-            drawing_shape.paint(p)
+            drawing_shape.paint(p, show_label=self.show_labels)
         
         if len(self.app.sam_mask) > 0:
             for tmp_mask in self.app.sam_mask:
