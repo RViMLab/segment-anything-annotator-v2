@@ -194,22 +194,17 @@ class MainWindow(QMainWindow):
         self.img_progress_bar.setMinimum(0)
         self.img_progress_bar.setMaximum(1)
         self.img_progress_bar.setValue(0)
-        self.button_proposal1 = QPushButton('Proposal1', self)
+        self.button_proposal1 = QPushButton('Proposal 1', self)
         self.button_proposal1.clicked.connect(self.choose_proposal1)
-        self.button_proposal1.setShortcut('Alt+1')
-        self.button_proposal2 = QPushButton('Proposal2', self)
+        self.button_proposal2 = QPushButton('Proposal 2', self)
         self.button_proposal2.clicked.connect(self.choose_proposal2)
-        self.button_proposal2.setShortcut('Alt+2')
-        self.button_proposal3 = QPushButton('Proposal3', self)
+        self.button_proposal3 = QPushButton('Proposal 3', self)
         self.button_proposal3.clicked.connect(self.choose_proposal3)
-        self.button_proposal3.setShortcut('Alt+3')
-        self.button_proposal4 = QPushButton('Proposal4', self)
-        self.button_proposal4.clicked.connect(self.choose_proposal4)
-        self.button_proposal4.setShortcut('Alt+4')
-        self.button_proposal_list = [self.button_proposal1, self.button_proposal2, self.button_proposal3, self.button_proposal4]
+        self.button_proposal_list = [self.button_proposal1, self.button_proposal2, self.button_proposal3]
         
         for index, button in enumerate(self.button_proposal_list, start=1):
-            button.setToolTip(f"Select proposal {index} (Alt+{index})")
+            button.setToolTip(f"Select proposal {index} with {index} while SAM proposals are active")
+            button.setEnabled(False)
         self.labels_visibility_text = QLabel("Labels shown", self)
         self.img_name = QLabel("", self)
         self.img_name.setAlignment(Qt.AlignCenter)
@@ -291,8 +286,6 @@ class MainWindow(QMainWindow):
         self.button_proposal2.move(int(0.50 * global_w), int(0.84 * global_h))
         self.button_proposal3.resize(int(0.17 * global_w),int(0.14 * global_h))
         self.button_proposal3.move(int(0.67 * global_w), int(0.84 * global_h))
-        self.button_proposal4.resize(int(0.17 * global_w),int(0.14 * global_h))
-        self.button_proposal4.move(int(0.84 * global_w), int(0.84 * global_h))
 
         # ── Brightness / Contrast – vertical panel between image view and dock ──
         # Reserve the area from 67.5% to 78.5% of the window for two equal columns.
@@ -1397,30 +1390,24 @@ class MainWindow(QMainWindow):
 
 
     def choose_proposal1(self):
-        if len(self.sam_mask_proposal) > 0:
-            self.sam_mask = self.sam_mask_proposal[0]
-            self.canvas.setHiding()
-            self.canvas.update()
+        self.selectSamProposal(0)
 
     def choose_proposal2(self):
-        if len(self.sam_mask_proposal) > 1:
-            self.sam_mask = self.sam_mask_proposal[1]
-            self.canvas.setHiding()
-            self.canvas.update()
+        self.selectSamProposal(1)
             
     def choose_proposal3(self):
-        if len(self.sam_mask_proposal) > 2:
-            self.sam_mask = self.sam_mask_proposal[2]
-            self.canvas.setHiding()
-            self.canvas.update()
-            
-    def choose_proposal4(self):
-        if len(self.sam_mask_proposal) > 3:
-            self.sam_mask = self.sam_mask_proposal[3]
+        self.selectSamProposal(2)
+
+    def selectSamProposal(self, index):
+        if 0 <= index < min(3, len(self.sam_mask_proposal)):
+            self.sam_mask = self.sam_mask_proposal[index]
             self.canvas.setHiding()
             self.canvas.update()
             
     def loadImg(self):
+        self.sam_mask = []
+        self.sam_mask_proposal = []
+        self.show_proposals()
         self._annotation_data = None
         self._annotation_image = None
         self._annotation_empty_shapes = []
@@ -1530,7 +1517,11 @@ class MainWindow(QMainWindow):
                     return super().eventFilter(watched, event)
                 widget = widget.parentWidget()
             if not event.isAutoRepeat():
-                self.toggleObjectPolygons(event.key() - Qt.Key_0)
+                digit = event.key() - Qt.Key_0
+                if self.sam_mask_proposal and 1 <= digit <= 3:
+                    self.selectSamProposal(digit - 1)
+                else:
+                    self.toggleObjectPolygons(digit)
             return True
         return super().eventFilter(watched, event)
 
@@ -1617,27 +1608,32 @@ class MainWindow(QMainWindow):
         return max_id
         
     def show_proposals(self, masks=None, flag=1):
-        if flag != 1:
+        if flag == 1:
+            self.sam_mask = []
+            self.sam_mask_proposal = []
+        for index, button in enumerate(self.button_proposal_list, start=1):
+            button.setText(f"Proposal {index}")
+            button.setIcon(QIcon())
+            button.setEnabled(False)
+            # Digit routing belongs to eventFilter, including after reset.
+            button.setShortcut(QtGui.QKeySequence())
+        if flag != 1 and masks is not None:
             img = cv2.imread(self.current_img)
             if len(img.shape) == 2:
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            for msk_idx in range(masks.shape[0]):
+            for msk_idx in range(min(masks.shape[0], len(self.button_proposal_list))):
                 tmp_mask = masks[msk_idx]
                 tmp_vis = img.copy()
                 tmp_vis[tmp_mask > 0] = 0.5 * tmp_vis[tmp_mask > 0] + 0.5 * np.array([30,30,220])
-                tmp_vis = cv2.resize(tmp_vis,(int(0.17 * global_w),int(0.14 * global_h)))
+                button = self.button_proposal_list[msk_idx]
+                tmp_vis = cv2.resize(tmp_vis, (max(1, button.width()), max(1, button.height())))
                 tmp_vis = tmp_vis.astype(np.uint8)
                 pixmap = QPixmap.fromImage(QImage(tmp_vis, tmp_vis.shape[1], tmp_vis.shape[0], tmp_vis.shape[1] * 3 , QImage.Format_RGB888))
                 #self.button_proposal_list[msk_idx].setPixmap(pixmap)
                 self.button_proposal_list[msk_idx].setIcon(QIcon(pixmap))
                 self.button_proposal_list[msk_idx].setIconSize(QSize(tmp_vis.shape[1], tmp_vis.shape[0]))
-                self.button_proposal_list[msk_idx].setShortcut(str(msk_idx+1))
-        else:
-            for idx, button_proposal in enumerate(self.button_proposal_list):
-                button_proposal.setText('proprosal{}'.format(idx))
-                button_proposal.setIconSize(QSize(0,0))
-                self.button_proposal_list[idx].setShortcut(str(idx+1))
+                button.setEnabled(True)
 
     def transform_input(self, image, box=None, points=None):
         if self.keep_input_size == True:
@@ -2076,7 +2072,7 @@ class MainWindow(QMainWindow):
         image_height = max(300, image_bottom - self.scrollArea.y())
         self.scrollArea.resize(self.scrollArea.width(), image_height)
 
-        # The lower-left progress/navigation region and the four proposal
+        # The lower-left progress/navigation region and the three proposal
         # cards share a bottom edge and never extend beneath the side panel.
         proposal_left = max(500, int(min(window_width, 1600) * 0.33))
         proposal_right = panel_left - margin
@@ -2084,7 +2080,7 @@ class MainWindow(QMainWindow):
         proposal_width = max(
             80,
             int(
-                (proposal_right - proposal_left - (3 * proposal_gap)) / 4
+                (proposal_right - proposal_left - (2 * proposal_gap)) / 3
             ),
         )
         for index, proposal in enumerate(self.button_proposal_list):

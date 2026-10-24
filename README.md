@@ -163,7 +163,11 @@ polygons, then **3** shows object 3; another **3** hides it again. If part of an
 object is visible, its digit hides the whole object. Digits with no matching
 object do nothing. On image navigation, polygons start visible as usual.
 These shortcuts work in annotation and review mode, and leave numeric typing
-in text fields and dialogs alone. SAM proposal selection uses **Alt+1–4**.
+in text fields and dialogs alone. While SAM proposals are active, **1–3**
+select **Proposal 1–3**, corresponding to SAM results 0–2, instead of toggling
+objects. **0 and 4–9** still toggle objects. Accepting/rejecting proposals or
+changing frames restores all digits to object visibility. There are three
+proposal buttons, disabled when no proposals are active.
 
 Use **Invert colours** below **Reset B/C** to toggle a colour-negative preview,
 for example when inspecting difficult endolaser frames. Inversion applies after
@@ -392,8 +396,8 @@ SQLite record.
 | `C` | Circle prompt mode |
 | `A` | Accept the selected proposal |
 | `R` | Reject proposals and clear prompts |
-| `Alt+1`–`Alt+4` | Select a mask proposal |
-| `0`–`9` | Hide/show all polygons with the matching group/object ID |
+| `1`–`3` | Select Proposal 1–3 while SAM proposals are active |
+| `0`–`9` | Hide/show the matching group/object ID (1–3 select active SAM proposals first) |
 | `E` | Edit polygon mode |
 | Arrow keys | Nudge a selected polygon |
 | `D` | Delete selected polygons |

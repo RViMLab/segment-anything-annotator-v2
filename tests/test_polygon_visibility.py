@@ -11,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from annotator import MainWindow
 from PIL import Image
+import numpy as np
 from qtpy import QtCore, QtGui, QtTest, QtWidgets
 from review import ReviewConfig, validate_review_config
 from shape import Shape
@@ -88,15 +89,77 @@ class PolygonVisibilityTests(unittest.TestCase):
         self.window.toggleObjectPolygons(9)
         self.assertEqual(self.visibility(), before)
 
-    def test_proposal_selection_uses_alt_digits_without_conflict(self):
-        proposals = [[Shape(label=f"proposal-{i}")] for i in range(4)]
-        self.window.sam_mask_proposal = proposals
-        QtTest.QTest.keyClick(self.window.canvas, QtCore.Qt.Key_3)
+    def generate_proposals(self):
+        box = Shape(label="box", shape_type="rectangle")
+        box.points = [QtCore.QPointF(1, 1), QtCore.QPointF(20, 20)]
+        self.window.canvas.currentBox = box
+        masks = np.zeros((3, 24, 32), dtype=np.uint8)
+        for index in range(3):
+            masks[index, 2 + index:14 + index, 2:15] = 1
+        predictor = Mock()
+        predictor.predict.return_value = (masks, np.array([0.5, 0.9, 0.7]), None)
+        self.window.predictor = predictor
+        self.window.clickManualSegBBox()
+        return self.window.sam_mask_proposal
+
+    def test_active_proposal_digits_match_three_one_based_buttons(self):
+        proposals = self.generate_proposals()
+        self.assertEqual(len(proposals), 3)
+        self.assertEqual(len(self.window.button_proposal_list), 3)
+        self.assertFalse(hasattr(self.window, "button_proposal4"))
+        for index, button in enumerate(self.window.button_proposal_list):
+            self.assertEqual(button.text(), f"Proposal {index + 1}")
+            self.assertTrue(button.isEnabled())
+            self.assertTrue(button.shortcut().isEmpty())
+            QtTest.QTest.keyClick(self.window.canvas, QtCore.Qt.Key_1 + index)
+            self.assertIs(self.window.sam_mask, proposals[index])
+            self.assertEqual(self.visibility(), [True] * 4)
+        QtTest.QTest.keyClick(self.window.canvas, QtCore.Qt.Key_4)
+        self.assertEqual(self.visibility(), [True, True, False, True])
+
+    def assert_digits_toggle_objects(self):
+        for digit in range(10):
+            self.window.togglePolygons(False)
+            next(iter(self.window.labelList)).shape().group_id = digit
+            QtTest.QTest.keyClick(self.window.canvas, QtCore.Qt.Key_0 + digit)
+            self.assertEqual(self.visibility(), [
+                str(item.shape().group_id) == str(digit) for item in self.window.labelList
+            ], digit)
+
+    def assert_proposal_buttons_inactive(self):
+        self.assertEqual([button.text() for button in self.window.button_proposal_list],
+                         ["Proposal 1", "Proposal 2", "Proposal 3"])
+        for button in self.window.button_proposal_list:
+            self.assertFalse(button.isEnabled())
+            self.assertTrue(button.shortcut().isEmpty())
+
+    def test_all_digits_after_real_proposal_reset(self):
+        self.generate_proposals()
+        self.window.show_proposals()
+        self.assert_proposal_buttons_inactive()
+        self.assert_digits_toggle_objects()
+
+    def test_digits_after_sam_rejection(self):
+        self.generate_proposals()
+        self.window.cleanPrompt()
+        self.assert_proposal_buttons_inactive()
+        self.assert_digits_toggle_objects()
+
+    def test_digits_after_sam_acceptance(self):
+        self.generate_proposals()
+        with patch.object(self.window.labelDialog, "popUp", return_value=("accepted", {}, 8, "")):
+            self.window.addSamMask()
+        self.window.setClean()
+        self.assert_proposal_buttons_inactive()
+        self.assert_digits_toggle_objects()
+
+    def test_image_navigation_clears_proposals_and_restores_digit_visibility(self):
+        self.generate_proposals()
+        self.window.clickButtonNext()
+        self.assertEqual(self.window.sam_mask_proposal, [])
         self.assertEqual(self.window.sam_mask, [])
-        QtTest.QTest.keyClick(self.window.canvas, QtCore.Qt.Key_3, QtCore.Qt.AltModifier)
-        QtTest.QTest.qWait(150)  # QPushButton keyboard activation uses animateClick.
-        self.assertIs(self.window.sam_mask, proposals[2])
-        self.assertEqual(self.visibility(), [False, False, True, True])
+        self.assert_proposal_buttons_inactive()
+        self.assert_digits_toggle_objects()
 
     def test_numeric_text_entry_is_not_consumed_or_toggled(self):
         controls = [QtWidgets.QLineEdit(self.window), QtWidgets.QPlainTextEdit(self.window),
@@ -121,6 +184,18 @@ class PolygonVisibilityTests(unittest.TestCase):
                 self.assertEqual(widget.toPlainText(), "3")
             widget.hide()
             widget.deleteLater()
+
+    def test_typing_digits_with_active_proposals_does_not_select_them(self):
+        self.generate_proposals()
+        selected = self.window.sam_mask
+        entry = QtWidgets.QLineEdit(self.window)
+        entry.show()
+        entry.setFocus()
+        self.application.processEvents()
+        QtTest.QTest.keyClicks(entry, "1234")
+        self.assertEqual(entry.text(), "1234")
+        self.assertIs(self.window.sam_mask, selected)
+        self.assertEqual(self.visibility(), [True] * 4)
 
     def test_modal_dialog_and_auto_repeat_do_not_toggle(self):
         dialog = QtWidgets.QDialog(self.window)
