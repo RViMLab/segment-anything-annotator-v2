@@ -1405,14 +1405,31 @@ class MainWindow(QMainWindow):
             self.canvas.update()
             
     def loadImg(self):
+        if not self.current_img:
+            return False
+        requested_image = self.current_img
+        image = cv2.imread(requested_image)
+        pixmap = QPixmap(requested_image)
+        if image is None or pixmap.isNull():
+            previous = getattr(self, "_loaded_image", None)
+            if previous is not None:
+                self.current_img, self.current_img_index = previous
+            else:
+                self.current_img = ""
+            QMessageBox.critical(
+                self,
+                self.tr("Could not load image"),
+                self.tr(f"The image could not be read:\n\n{requested_image}\n\n"
+                        "Choose a valid image before continuing."),
+            )
+            return False
         self.sam_mask = []
         self.sam_mask_proposal = []
         self.show_proposals()
         self._annotation_data = None
         self._annotation_image = None
         self._annotation_empty_shapes = []
-        self.raw_h, self.raw_w = cv2.imread(self.current_img).shape[:2]
-        pixmap = QPixmap(self.current_img)
+        self.raw_h, self.raw_w = image.shape[:2]
         # Keep an unmodified copy for brightness/contrast adjustments
         self._raw_pixmap = pixmap
         self.canvas.loadPixmap(pixmap)
@@ -1462,6 +1479,8 @@ class MainWindow(QMainWindow):
             or self.button_invert_colours.isChecked()
         ):
             self.applyBrightnessContrast()
+        self._loaded_image = (self.current_img, self.current_img_index)
+        return True
 
 
 
@@ -1488,7 +1507,8 @@ class MainWindow(QMainWindow):
         else:
             self.current_output_dir = directory
             os.makedirs(self.current_output_dir, exist_ok=True)
-            self.loadImg()
+            if self.current_img:
+                self.loadImg()
             return directory
 
 
