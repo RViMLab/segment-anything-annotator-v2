@@ -67,7 +67,7 @@ class ReviewStorageTests(unittest.TestCase):
         # remove the temporary database in tearDown.
         with closing(sqlite3.connect(storage.database_path)) as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-        self.assertEqual(version, 1)
+        self.assertEqual(version, 2)
 
     def test_reopening_same_configuration_resumes_without_duplicates(self):
         storage = ReviewStorage.for_config(self.config)

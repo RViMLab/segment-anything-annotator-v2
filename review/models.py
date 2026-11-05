@@ -101,6 +101,9 @@ class ReviewItemRecord:
     created_at: str
     updated_at: str
     is_active: bool = True
+    class_mask_changed: Optional[bool] = None
+    class_mask_error: Optional[str] = None
+    class_mask_policy: Optional[str] = None
 
 
 @dataclass(frozen=True)

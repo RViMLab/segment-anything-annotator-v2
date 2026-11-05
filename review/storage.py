@@ -18,7 +18,7 @@ from .models import (
 )
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_DATABASE_FILENAME = "review_session.sqlite3"
 
 
@@ -128,7 +128,16 @@ class ReviewStorage:
                     ON review_items (session_id, is_active, status, ordinal);
                     """
                 )
-                connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                connection.execute("PRAGMA user_version = 1")
+                version = 1
+            if version == 1:
+                connection.execute("BEGIN IMMEDIATE")
+                # Another process may have upgraded while this one waited.
+                if connection.execute("PRAGMA user_version").fetchone()[0] == 1:
+                    connection.execute("ALTER TABLE review_items ADD COLUMN class_mask_changed INTEGER")
+                    connection.execute("ALTER TABLE review_items ADD COLUMN class_mask_error TEXT")
+                    connection.execute("ALTER TABLE review_items ADD COLUMN class_mask_policy TEXT")
+                    connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def open_or_create_session(
         self,
@@ -340,6 +349,9 @@ class ReviewStorage:
                     annotation_changed = ?,
                     geometry_changed = ?,
                     raster_mask_changed = ?,
+                    class_mask_changed = ?,
+                    class_mask_error = ?,
+                    class_mask_policy = ?,
                     started_at = ?,
                     completed_at = ?,
                     updated_at = ?
@@ -356,6 +368,9 @@ class ReviewStorage:
                     item.annotation_changed,
                     item.geometry_changed,
                     item.raster_mask_changed,
+                    item.class_mask_changed,
+                    item.class_mask_error,
+                    item.class_mask_policy,
                     item.started_at,
                     item.completed_at,
                     timestamp,
@@ -435,6 +450,9 @@ class ReviewStorage:
             annotation_changed=_optional_bool(row["annotation_changed"]),
             geometry_changed=_optional_bool(row["geometry_changed"]),
             raster_mask_changed=_optional_bool(row["raster_mask_changed"]),
+            class_mask_changed=_optional_bool(row["class_mask_changed"]),
+            class_mask_error=row["class_mask_error"],
+            class_mask_policy=row["class_mask_policy"],
             started_at=row["started_at"],
             completed_at=row["completed_at"],
             created_at=row["created_at"],

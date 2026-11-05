@@ -1063,6 +1063,9 @@ class MainWindow(QMainWindow):
             annotation_changed=comparison.annotation_changed,
             geometry_changed=comparison.geometry_changed,
             raster_mask_changed=comparison.raster_mask_changed,
+            class_mask_changed=comparison.class_mask_changed,
+            class_mask_error=comparison.class_mask_error,
+            class_mask_policy=comparison.class_mask_policy,
         )
         current = with_item_status(current, status)
         current = self.review_storage.save_item(current)

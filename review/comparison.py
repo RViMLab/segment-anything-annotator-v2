@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
@@ -18,6 +20,12 @@ class AnnotationComparison:
     annotation_changed: Optional[bool]
     geometry_changed: Optional[bool]
     raster_mask_changed: Optional[bool]
+    class_mask_changed: Optional[bool] = None
+    class_mask_error: Optional[str] = None
+    class_mask_policy: Optional[str] = None
+
+
+CLASS_MASK_POLICY = "numeric-group-id/coverage-and-last-shape-wins/pillow-v1"
 
 
 def sha256_file(path: Path) -> str:
@@ -144,6 +152,63 @@ def _dimensions(original: dict, reviewed: dict) -> Tuple[int, int]:
     return width, height
 
 
+def _class_id(value):
+    if isinstance(value, bool):
+        raise ValueError("Boolean group IDs are not class codes.")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and re.fullmatch(r"[+-]?[0-9]+", value.strip()):
+        return int(value.strip())
+    raise ValueError("Every nonempty shape needs an integer numeric group ID for class comparison.")
+
+
+def _class_shapes(annotation, width, height):
+    groups, ordered = {}, []
+    for shape in annotation["shapes"]:
+        if shape.get("shape_type", "polygon") not in {
+                "polygon", "rectangle", "circle", "line", "linestrip", "point"}:
+            raise ValueError("Unsupported shape type in class comparison.")
+        if not _mask({"shapes": [shape]}, width, height).getbbox():
+            continue
+        class_id = _class_id(shape.get("group_id"))
+        groups.setdefault(class_id, []).append(shape)
+        ordered.append((class_id, shape))
+    return groups, ordered
+
+
+def compare_class_masks(original, reviewed, width, height):
+    """Compare class coverage plus visible composition, with bounded workspace.
+
+    IDs are dataset-local numeric codes, not names or category-list indices.
+    Zero is a valid foreground class; background uses a separate internal ID.
+    Each shape is independently filled; later shapes win where classes overlap.
+    Per-class unions additionally detect changed regions hidden by other classes.
+    Existing data has no implicit group/ring/hole convention.
+    """
+    try:
+        original_groups, original_order = _class_shapes(original, width, height)
+        reviewed_groups, reviewed_order = _class_shapes(reviewed, width, height)
+    except ValueError as error:
+        return None, str(error)
+    classes = sorted(original_groups.keys() | reviewed_groups.keys())
+    for class_id in classes:
+        first = _mask({"shapes": original_groups.get(class_id, [])}, width, height)
+        second = _mask({"shapes": reviewed_groups.get(class_id, [])}, width, height)
+        if first.tobytes() != second.tobytes():
+            return True, None
+    values = {class_id: index + 1 for index, class_id in enumerate(classes)}
+    compositions = []
+    for ordered in (original_order, reviewed_order):
+        composed = Image.new("I", (width, height), 0)
+        for class_id, shape in ordered:
+            composed.paste(values[class_id], (0, 0, width, height),
+                           _mask({"shapes": [shape]}, width, height))
+        compositions.append(composed)
+    return compositions[0].tobytes() != compositions[1].tobytes(), None
+
+
 def compare_annotations(
     original_path: Path,
     reviewed_path: Optional[Path],
@@ -158,6 +223,7 @@ def compare_annotations(
     original = _load_json(original_path)
     reviewed = _load_json(reviewed_path)
     width, height = _dimensions(original, reviewed)
+    class_changed, class_error = compare_class_masks(original, reviewed, width, height)
     return AnnotationComparison(
         original_json_sha256=original_hash,
         reviewed_json_sha256=reviewed_hash,
@@ -169,4 +235,7 @@ def compare_annotations(
             _mask(original, width, height).tobytes()
             != _mask(reviewed, width, height).tobytes()
         ),
+        class_mask_changed=class_changed,
+        class_mask_error=class_error,
+        class_mask_policy=CLASS_MASK_POLICY,
     )

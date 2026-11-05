@@ -388,6 +388,29 @@ SQLite record.
 - Finishing a partial session leaves `in_progress` and `unreviewed` statuses
   unchanged but prevents that session from resuming automatically.
 
+### Class-aware review comparison
+
+Review decisions retain the existing `raster_mask_changed` binary-silhouette
+check and add `class_mask_changed`, `class_mask_error`, and `class_mask_policy`
+to the database/CSV. Classes use **numeric group IDs**, local to the dataset;
+human-readable label names do not define the downstream class. ID `0` is a
+valid class, separate from background. Integer strings (including leading
+zeros) and integer-valued numbers are equivalent without rewriting source JSON.
+
+The policy compares both per-class coverage (including regions hidden by
+another class) and visible composition, where later shapes in the polygon list
+win overlaps. Shapes are filled independently; groups and nested rings do not
+imply holes. No global class-name ontology is assumed. A nonempty shape with
+an unassigned/invalid numeric ID makes this check unavailable: the result is
+blank and the reason is recorded in `class_mask_error`, rather than falsely
+reporting no class change. The existing geometry/silhouette checks still run.
+
+Old review records retain blank new fields until another decision is recorded.
+Review databases migrate additively from schema 1 to 2 without changing existing
+decisions, notes, or annotations. **Use a copied review output/database when
+testing this PR:** older app versions cannot reopen a schema-2 database. The
+comparison policy is recorded alongside each newly computed result.
+
 ## Image annotator shortcuts
 
 | Shortcut | Action |
