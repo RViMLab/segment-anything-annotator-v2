@@ -153,6 +153,23 @@ metadata or vertices already removed by earlier saves. Geometry-changing tools
 such as Reduce Points, merge, and subtract are tracked separately in
 [#36](https://github.com/RViMLab/segment-anything-annotator-v2/issues/36).
 
+### Geometry-changing operations
+
+Merge, Subtract, and Reduce Points preview native-resolution pixel/region/hole
+counts and vertex counts before asking whether to apply a change. Cancel leaves
+the annotations unchanged. Undo restores geometry and metadata after applying.
+
+The current JSON format stores independently filled polygons with no hole
+convention. Operations that create holes or cannot reproduce small/thin regions
+exactly as polygons are blocked rather than filling or dropping them. Reduction
+is blocked if it would remove a region, change holes, or leave fewer than three
+vertices. Other pixel changes from reduction require explicit confirmation.
+
+Merge requires matching labels, object IDs, flags, descriptions, and other
+shape metadata. It also blocks merging across intervening overlapping shapes
+that could change draw order. Deliberately align metadata or order first when
+that is your intent. Existing annotation files are not migrated or rewritten.
+
 ### Image display controls
 
 **Show labels** replaces the old Class On/Off button. Uncheck it to hide

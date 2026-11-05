@@ -29,6 +29,9 @@ from utils.app_icon import configure_qt_application, configure_windows_app_id
 from utils.annotation_io import atomic_write_annotation
 from utils.annotation_document import shape_to_annotation
 from utils.proposal_button import ProposalButton
+from utils.geometry_operations import (
+    GeometrySafetyError, describe_change, exact_mask_polygons, polygon_mask,
+)
 
 from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelDialog, LabelListWidget, LabelListWidgetItem, ZoomWidget
 from labelme import PY2
@@ -2316,106 +2319,113 @@ class MainWindow(QMainWindow):
         contours = np.array(contours[0])
         return contours
 
-    def _perform_subtract(self, source_shape, target_shape):
-        # Convert Shape points to polygon arrays
-        if source_shape is None or target_shape is None:
-            return
-        if source_shape.shape_type != 'polygon' or target_shape.shape_type != 'polygon':
-            raise ValueError('Both shapes must be polygons')
-        # build numpy polygons
-        src_pts = np.array([[p.x(), p.y()] for p in source_shape.points])
-        tgt_pts = np.array([[p.x(), p.y()] for p in target_shape.points])
-        h, w = int(self.raw_h), int(self.raw_w)
-        src_mask = self.polygon2mask(src_pts, (h, w))
-        tgt_mask = self.polygon2mask(tgt_pts, (h, w))
-        # (undo snapshot handled by canvas.loadShapes after modification)
-        # subtract source from target
-        new_mask = np.logical_and(tgt_mask > 0, np.logical_not(src_mask > 0)).astype(np.uint8)
-        # if new_mask empty, remove target shape
-        if new_mask.sum() == 0:
-            # remove target from canvas and label list
-            try:
-                self.canvas.deleteShape(target_shape)
-            except Exception:
-                pass
-            self.remLabels([target_shape])
-            self.canvas.loadShapes([item.shape() for item in self.labelList])
-            self.setDirty()
-            return
-        # convert mask back to polygons (keep all contours)
-        contours = cv2.findContours(new_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
-        if not contours:
-            return
-        # remove original target shape from canvas and label list
+    def _shapeMask(self, shape):
+        return polygon_mask([[p.x(), p.y()] for p in shape.points],
+                            (int(self.raw_h), int(self.raw_w)))
+
+    def _geometryWarning(self, error, report=None):
+        details = "\n\n" + report.describe() if report is not None else ""
+        QMessageBox.warning(self, self.tr("Operation not applied"),
+                            str(error) + details + "\n\nAnnotations were not changed.")
+        return False
+
+    def _confirmGeometryChange(self, operation, report, before_vertices, after_vertices):
+        return QMessageBox.question(
+            self, self.tr(operation),
+            report.describe() + f"\nVertices: {before_vertices} ? {after_vertices}."
+            "\n\nApply this change?",
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        ) == QMessageBox.Yes
+
+    def _commitGeometryReplacement(self, replacements, report):
+        # Keep existing draw order and visibility; replacements occupy the
+        # original slot instead of being appended above unrelated classes.
+        current = [item.shape() for item in self.labelList]
+        backups = self.canvas.shapesBackups
+        if not backups or [shape_to_annotation(s) for s in backups[-1]] != [
+                shape_to_annotation(s) for s in current]:
+            self.canvas.storeShapes()
+        ordered, visibility = [], {}
+        for item in self.labelList:
+            for shape in replacements.get(item.shape(), [item.shape()]):
+                ordered.append(shape)
+                visibility[shape] = item.checkState()
+        self.canvas.deSelectShape()
+        self._noSelectionSlot = True
         try:
-            self.canvas.deleteShape(target_shape)
-        except Exception:
-            pass
-        self.remLabels([target_shape])
-        # create new shapes from contours
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area < 1.0:
-                continue
-            pts = np.squeeze(cnt)
-            if pts.ndim != 2:
-                continue
-            shape_obj = Shape(label=target_shape.label, shape_type='polygon', flags=target_shape.flags, group_id=target_shape.group_id)
-            qt_points = [QtCore.QPointF(float(x), float(y)) for x, y in pts]
-            shape_obj.points = qt_points
-            shape_obj.close()
-            shape_obj.fill = True
-            self.addLabel(shape_obj)
-        # refresh canvas and labels (this will also store shapes)
-        self.canvas.loadShapes([item.shape() for item in self.labelList])
+            self.labelList.clear()
+            for shape in ordered:
+                self.addLabel(shape)
+                self.labelList.findItemByShape(shape).setCheckState(visibility[shape])
+        finally:
+            self._noSelectionSlot = False
+        self.canvas.loadShapes(ordered)
+        self.last_geometry_operation_report = report
         self.setDirty()
+        return True
+
+    def _perform_subtract(self, source_shape, target_shape):
+        return self._performMaskOperation(source_shape, target_shape, merge=False)
 
     def _perform_merge(self, source_shape, target_shape):
-        if source_shape is None or target_shape is None:
-            return
-        if source_shape.shape_type != 'polygon' or target_shape.shape_type != 'polygon':
-            raise ValueError('Both shapes must be polygons')
-        src_pts = np.array([[p.x(), p.y()] for p in source_shape.points])
-        tgt_pts = np.array([[p.x(), p.y()] for p in target_shape.points])
-        h, w = int(self.raw_h), int(self.raw_w)
-        src_mask = self.polygon2mask(src_pts, (h, w))
-        tgt_mask = self.polygon2mask(tgt_pts, (h, w))
-        # (undo snapshot handled by canvas.loadShapes after modification)
-        # union
-        new_mask = np.logical_or(src_mask > 0, tgt_mask > 0).astype(np.uint8)
-        if new_mask.sum() == 0:
-            return
-        contours = cv2.findContours(new_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
-        if not contours:
-            return
-        # remove original shapes from canvas first
+        return self._performMaskOperation(source_shape, target_shape, merge=True)
+
+    def _performMaskOperation(self, source_shape, target_shape, merge):
+        if source_shape is None or target_shape is None or source_shape is target_shape:
+            return False
+        if any(s.shape_type != "polygon" or len(s.points) < 3
+               for s in (source_shape, target_shape)):
+            return self._geometryWarning("Select two polygons with at least three vertices.")
+        if merge:
+            source_metadata = shape_to_annotation(source_shape)
+            target_metadata = shape_to_annotation(target_shape)
+            for metadata in (source_metadata, target_metadata):
+                metadata.pop("points", None)
+                metadata.setdefault("description", "")
+                metadata.setdefault("shape_type", "polygon")
+                metadata.setdefault("group_id", None)
+                metadata.setdefault("flags", {})
+            if source_metadata != target_metadata:
+                return self._geometryWarning(
+                    "Merge requires matching labels, object IDs, flags, and metadata. "
+                    "Align those fields deliberately before merging."
+                )
+        source_mask, target_mask = self._shapeMask(source_shape), self._shapeMask(target_shape)
+        before = source_mask | target_mask if merge else target_mask
+        if merge:
+            ordered = [item.shape() for item in self.labelList]
+            first, last = sorted((ordered.index(source_shape), ordered.index(target_shape)))
+            for intermediate in ordered[first + 1:last]:
+                if intermediate.shape_type != "polygon" or np.any(self._shapeMask(intermediate) & before):
+                    return self._geometryWarning(
+                        "Merging across intervening overlapping annotations could change draw order. "
+                        "Move the polygons together in the list deliberately before merging."
+                    )
+        after = before if merge else (target_mask & (1 - source_mask))
+        report = describe_change(before, after)
         try:
-            self.canvas.deleteShape(source_shape)
-        except Exception:
-            pass
-        try:
-            self.canvas.deleteShape(target_shape)
-        except Exception:
-            pass
-        # remove from label list
-        self.remLabels([source_shape, target_shape])
+            polygons = exact_mask_polygons(after)
+        except GeometrySafetyError as error:
+            return self._geometryWarning(error, report)
+        if not merge and not report.added and not report.removed:
+            return False
+        template = source_shape if merge else target_shape
         created = []
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area < 1.0:
-                continue
-            pts = np.squeeze(cnt)
-            if pts.ndim != 2:
-                continue
-            shape_obj = Shape(label=source_shape.label, shape_type='polygon', flags=source_shape.flags, group_id=source_shape.group_id)
-            qt_points = [QtCore.QPointF(float(x), float(y)) for x, y in pts]
-            shape_obj.points = qt_points
-            shape_obj.close()
-            shape_obj.fill = True
-            created.append(shape_obj)
-            self.addLabel(shape_obj)
-        self.canvas.loadShapes([item.shape() for item in self.labelList])
-        self.setDirty()
+        for points in polygons:
+            shape = template.copy()
+            shape.points = [QtCore.QPointF(float(x), float(y)) for x, y in points]
+            shape.close()
+            shape.selected = False
+            created.append(shape)
+        removed = [source_shape, target_shape] if merge else [target_shape]
+        if not self._confirmGeometryChange(
+                "Merge polygons" if merge else "Subtract polygons", report,
+                sum(len(s.points) for s in removed), sum(len(s.points) for s in created)):
+            return False
+        replacements = {s: [] for s in removed}
+        replacements[template] = created
+        return self._commitGeometryReplacement(replacements, report)
 
     def editLabel(self, item=None):
         if item and not isinstance(item, LabelListWidgetItem):
@@ -2596,48 +2606,44 @@ class MainWindow(QMainWindow):
         self.setDirty()
 
     def reducePoint(self):
-        # undo snapshot will be created by canvas.loadShapes after modifications
-        def format_shape(s):
-            data = s.other_data.copy()
-            data.update(
-                dict(
-                    label=s.label.encode("utf-8") if PY2 else s.label,
-                    points=[(p.x(), p.y()) for p in s.points],
-                    group_id=s.group_id,
-                    shape_type=s.shape_type,
-                    flags=s.flags,
+        selected = [item.shape() for item in self.labelList.selectedItems()]
+        if not selected:
+            return False
+        replacements = {}
+        before = np.zeros((int(self.raw_h), int(self.raw_w)), dtype=np.uint8)
+        after = np.zeros_like(before)
+        for shape in selected:
+            if shape.shape_type != "polygon" or len(shape.points) < 3:
+                return self._geometryWarning("Reduce Points supports polygons with at least three vertices.")
+            points = [(p.x(), p.y()) for p in shape.points]
+            threshold = self.get_min_dis(points) * 1.5
+            reduced = [points[0]]
+            for point in points[1:]:
+                if math.hypot(point[0] - reduced[-1][0], point[1] - reduced[-1][1]) > threshold:
+                    reduced.append(point)
+            if len(reduced) > 1 and reduced[-1] == reduced[0]:
+                reduced.pop()
+            original_mask = self._shapeMask(shape)
+            reduced_mask = polygon_mask(reduced, original_mask.shape)
+            item_report = describe_change(original_mask, reduced_mask)
+            if (len(reduced) < 3 or item_report.before_regions != item_report.after_regions
+                    or item_report.before_holes != item_report.after_holes):
+                return self._geometryWarning(
+                    "Point reduction would remove a region, change holes, or leave fewer than three vertices.",
+                    item_report,
                 )
-            )
-            return data
-        shapes = self.current_img
-        shapes = [format_shape(item.shape()) for item in self.labelList.selectedItems()]
-        rm_shapes = [item.shape() for item in self.labelList.selectedItems()]
-        self.remLabels(rm_shapes)
-        for shape in shapes:
-            points = shape['points']
-            min_dis = self.get_min_dis(points)
-            points_new = [points[0]]
-            for i in range(1,len(points)):
-                d = math.sqrt((points[i][0] - points_new[-1][0]) ** 2 + (points[i][1] - points_new[-1][1]) ** 2)
-                if d > (min_dis * 1.5):
-                    points_new.append(points[i])
-            shape['points'] = points_new
-        #self.labelList.clear()
-        for tmp_shape in shapes:
-            shape = Shape(
-                label=tmp_shape['label'],
-                shape_type=tmp_shape['shape_type'],
-                group_id=tmp_shape['group_id'],
-            )
-            for point_index in range(len(tmp_shape['points'])):
-                shape.addPoint(QtCore.QPointF(tmp_shape['points'][point_index][0], tmp_shape['points'][point_index][1]))
-            shape.close()
-            self.addLabel(shape)
-            tmp_item = self.labelList.findItemByShape(shape)
-            self.labelList.selectItem(tmp_item)
-            self.labelList.scrollToItem(tmp_item)
-        self.canvas.loadShapes([item.shape() for item in self.labelList])
-        self.actions.save.setEnabled(True)
+            updated = shape.copy()
+            updated.points = [QtCore.QPointF(x, y) for x, y in reduced]
+            updated.close()
+            replacements[shape] = [updated]
+            before |= original_mask
+            after |= reduced_mask
+        report = describe_change(before, after)
+        if not self._confirmGeometryChange("Reduce Points", report,
+                sum(len(s.points) for s in selected),
+                sum(len(s.points) for values in replacements.values() for s in values)):
+            return False
+        return self._commitGeometryReplacement(replacements, report)
 
     def get_min_dis(self, points):
         min_dis = 10000
