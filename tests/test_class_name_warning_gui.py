@@ -36,7 +36,8 @@ class ClassNameWarningGuiTests(unittest.TestCase):
             if name != "third":
                 (self.annotations / f"{name}.json").write_text(json.dumps(self.document))
         self.window = MainWindow(global_w=1000, global_h=1600)
-        self.window.current_output_dir = str(self.annotations)
+        with patch("annotator.QFileDialog.getExistingDirectory", return_value=str(self.annotations)):
+            self.window.clickSaveChoose()
         self.window.img_list = [str(self.images / f"{name}.png") for name in ("first", "second", "third")]
         self.window.img_len = 3
         self.window.current_img_index = 1
