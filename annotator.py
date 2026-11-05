@@ -1423,6 +1423,9 @@ class MainWindow(QMainWindow):
                         "Choose a valid image before continuing."),
             )
             return False
+        # A new frame/reload must not retain an unfinished polygon or its
+        # point-undo state from the previous image.
+        self.canvas.cancelDrawing()
         self.sam_mask = []
         self.sam_mask_proposal = []
         self.show_proposals()
@@ -2218,7 +2221,14 @@ class MainWindow(QMainWindow):
         In the middle of drawing, toggling between modes should be disabled.
         """
         self.actions.editMode.setEnabled(not drawing)
-        # self.actions.undoLastPoint.setEnabled(drawing)
+        current = self.canvas.current
+        self.actions.undoLastPoint.setEnabled(bool(
+            drawing
+            and self.canvas.drawing()
+            and current
+            and not current.isClosed()
+            and current.shape_type in ("polygon", "linestrip")
+        ))
         # self.actions.undo.setEnabled(not drawing)
         # self.actions.delete.setEnabled(not drawing)
     def setScroll(self, orientation, value):

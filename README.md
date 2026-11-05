@@ -120,6 +120,10 @@ The application writes one Labelme-compatible JSON file per image.
 - **Box Prompt:** draw a bounding box around the object.
 - **Circle Prompt:** draw a circular prompt around the object.
 - **Manual Polygons:** click along the object boundary to create a polygon.
+- **Undo last point (U):** remove the newest vertex from an unfinished manual
+  polygon. The control becomes available after the first vertex and disables
+  after completion, cancellation, or changing frames/modes. It does not remove
+  SAM prompt clicks; **Ctrl+U** undoes completed shape edits.
 - **Edit Polygons:** select and move polygon vertices. Arrow keys nudge the
   selected polygon.
 - **Merge Polygons:** select a source polygon, activate Merge, then select the
