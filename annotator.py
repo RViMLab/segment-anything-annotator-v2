@@ -28,6 +28,7 @@ from utils.download_model import download_model
 from utils.app_icon import configure_qt_application, configure_windows_app_id
 from utils.annotation_io import atomic_write_annotation
 from utils.annotation_document import shape_to_annotation
+from utils.proposal_button import ProposalButton
 
 from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelDialog, LabelListWidget, LabelListWidgetItem, ZoomWidget
 from labelme import PY2
@@ -194,11 +195,11 @@ class MainWindow(QMainWindow):
         self.img_progress_bar.setMinimum(0)
         self.img_progress_bar.setMaximum(1)
         self.img_progress_bar.setValue(0)
-        self.button_proposal1 = QPushButton('1', self)
+        self.button_proposal1 = ProposalButton('1', self)
         self.button_proposal1.clicked.connect(self.choose_proposal1)
-        self.button_proposal2 = QPushButton('2', self)
+        self.button_proposal2 = ProposalButton('2', self)
         self.button_proposal2.clicked.connect(self.choose_proposal2)
-        self.button_proposal3 = QPushButton('3', self)
+        self.button_proposal3 = ProposalButton('3', self)
         self.button_proposal3.clicked.connect(self.choose_proposal3)
         self.button_proposal_list = [self.button_proposal1, self.button_proposal2, self.button_proposal3]
         
@@ -1659,13 +1660,8 @@ class MainWindow(QMainWindow):
         source_size = getattr(button, "_proposal_image_size", QSize())
         if source_size.isEmpty():
             return
-        # Reserve space for the digit, icon/text gap, and button frame. Keep
-        # the full image visible instead of stretching it to the card shape.
-        number_width = button.fontMetrics().horizontalAdvance(button.text())
-        available = QSize(
-            max(1, button.contentsRect().width() - number_width - 24),
-            max(1, button.contentsRect().height() - 12),
-        )
+        # The card reserves a separate area for its large numeric caption.
+        available = button.previewRect().size()
         button.setIconSize(source_size.scaled(available, Qt.KeepAspectRatio))
 
     def transform_input(self, image, box=None, points=None):
