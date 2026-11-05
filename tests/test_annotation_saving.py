@@ -73,7 +73,9 @@ class AnnotationSavingTests(unittest.TestCase):
         for name in ("saveFile", "_saveFile", "saveLabels", "setClean", "_showSaveError",
                      "recordReviewDecision", "_persistCurrentReviewState",
                      "_replaceReviewItem", "_reviewProgress", "navigateImage",
-                     "navigateReviewTarget", "loadImg", "loadAnno", "closeEvent", "show_proposals"):
+                     "navigateReviewTarget", "loadImg", "loadAnno", "closeEvent", "show_proposals",
+                     "_checkClassNameConsistency", "_classNameCandidates", "_waitForClassNameCheck",
+                     "_showClassNameWarning"):
             setattr(self.window, name, MethodType(getattr(MainWindow, name), self.window))
         self.window.addLabel = lambda shape: self.window.labelList.append(
             SimpleNamespace(shape=lambda: shape)

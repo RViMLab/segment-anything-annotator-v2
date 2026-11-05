@@ -24,6 +24,7 @@ from qtpy import QtCore
 from qtpy import QtGui, QtWidgets
 from canvas import Canvas
 import utils
+from utils.class_name_consistency import ClassNameChecker, ConsistencyReport
 from utils.download_model import download_model
 from utils.app_icon import configure_qt_application, configure_windows_app_id
 from utils.annotation_io import atomic_write_annotation
@@ -951,6 +952,8 @@ class MainWindow(QMainWindow):
         if self.current_review_item is not None and self.actions.save.isEnabled():
             if not self.saveFile():
                 return
+        elif self.current_review_item is not None and not self._checkClassNameConsistency(self.current_output_filename):
+            return
         self._persistCurrentReviewState()
         if offset > 0:
             candidates = [
@@ -978,6 +981,8 @@ class MainWindow(QMainWindow):
         if self.current_review_item is not None and self.actions.save.isEnabled():
             if not self.saveFile():
                 return
+        elif self.current_review_item is not None and not self._checkClassNameConsistency(self.current_output_filename):
+            return
         self._persistCurrentReviewState()
         new_index = self.current_img_index + offset
         if not 0 <= new_index < self.img_len:
@@ -1005,6 +1010,8 @@ class MainWindow(QMainWindow):
         from review import compare_annotations, ReviewStatus, with_item_status
 
         if self.current_review_item is None:
+            return False
+        if not self._checkClassNameConsistency(self.current_output_filename):
             return False
         if status == ReviewStatus.NO_CHANGE:
             if self.actions.save.isEnabled():
@@ -1170,7 +1177,8 @@ class MainWindow(QMainWindow):
 
 
     def saveFileAs(self, _value=False):
-        assert not self.image.isNull(), "cannot save empty image"
+        if not self.current_img:
+            return False
         return self._saveFile(self.saveFileDialog())
 
     def saveFile(self, _value=False):
@@ -1190,6 +1198,8 @@ class MainWindow(QMainWindow):
     def _saveFile(self, filename):
         if not filename:
             return False
+        if not self._checkClassNameConsistency(filename):
+            return False
         try:
             if self.review_config is not None:
                 os.makedirs(osp.dirname(filename), exist_ok=True)
@@ -1201,6 +1211,110 @@ class MainWindow(QMainWindow):
         else:
             self.setClean()
             return True
+
+    def _classNameCandidates(self, filename):
+        current = osp.normcase(osp.abspath(self.current_img))
+        peers = []
+        if self.review_config is not None:
+            for item in self.review_items:
+                if osp.normcase(osp.abspath(str(item.image_path))) == current:
+                    continue
+                name = item.image_path.relative_to(self.review_config.image_directory).as_posix()
+                peers.append((name, (item.reviewed_annotation_path, item.original_annotation_path)))
+        else:
+            directory = osp.dirname(osp.abspath(filename))
+            for image in self.img_list:
+                if osp.normcase(osp.abspath(image)) == current:
+                    continue
+                annotation = osp.join(directory, osp.splitext(osp.basename(image))[0] + ".json")
+                peers.append((osp.basename(image), (annotation,)))
+        return tuple(sorted(set(peers), key=lambda value: value[0]))
+
+    def _waitForClassNameCheck(self, records, peers):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+
+        if not peers:
+            return ClassNameChecker().check(records, peers)
+        if not hasattr(self, "_class_name_checker"):
+            self._class_name_checker = ClassNameChecker()
+        if getattr(self, "_class_name_executor", None) is None:
+            self._class_name_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="class-names")
+        cancelled = Event()
+        self._class_name_cancel_event = cancelled
+        future = self._class_name_executor.submit(self._class_name_checker.check, records, peers, cancelled)
+        if future.done():
+            return future.result()
+        progress = QtWidgets.QProgressDialog("Checking class names…", "Cancel", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(250)
+        loop = QtCore.QEventLoop(self)
+        poll = QtCore.QTimer(progress)
+        poll.timeout.connect(lambda: loop.quit() if future.done() else None)
+        poll.start(25)
+        show = QtCore.QTimer(progress)
+        show.setSingleShot(True)
+        show.timeout.connect(progress.show)
+        show.start(250)
+
+        def cancel():
+            cancelled.set()
+            loop.quit()
+
+        progress.canceled.connect(cancel)
+        try:
+            loop.exec_()
+        finally:
+            poll.stop()
+            show.stop()
+            progress.canceled.disconnect(cancel)
+            progress.close()
+            progress.deleteLater()
+            loop.deleteLater()
+        return None if cancelled.is_set() else future.result()
+
+    def _showClassNameWarning(self, report):
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(self.tr("Class name mismatch"))
+        dialog.setIcon(QMessageBox.Warning)
+        dialog.setTextFormat(Qt.PlainText)
+        dialog.setText(report.message())
+        if report.unreadable:
+            dialog.setDetailedText("\n".join(f"{path}: {error}" for path, error in report.unreadable))
+        review = dialog.addButton(self.tr("Review names"), QMessageBox.RejectRole)
+        save = dialog.addButton(self.tr("Save anyway"), QMessageBox.AcceptRole)
+        dialog.setDefaultButton(review)
+        dialog.exec_()
+        return dialog.clickedButton() is save
+
+    def _checkClassNameConsistency(self, filename):
+        if getattr(self, "_checking_class_names", False):
+            return False
+        self._checking_class_names = True
+        try:
+            records = [{"group_id": item.shape().group_id, "label": item.shape().label,
+                        "points": bool(item.shape().points)} for item in self.labelList]
+            peers = self._classNameCandidates(filename)
+            try:
+                report = self._waitForClassNameCheck(records, peers)
+            except Exception as error:
+                report = ConsistencyReport(unreadable=(("Dataset", str(error)),))
+            if report is None or report.cancelled:
+                return False
+            if not hasattr(self, "_class_name_acknowledged"):
+                self._class_name_acknowledged = {}
+            key = (osp.normcase(osp.abspath(self.current_img)), osp.normcase(osp.abspath(filename)))
+            if not report.conflicts and not report.unreadable:
+                self._class_name_acknowledged.pop(key, None)
+                return True
+            if self._class_name_acknowledged.get(key) == report:
+                return True
+            if not self._showClassNameWarning(report):
+                return False
+            self._class_name_acknowledged[key] = report
+            return True
+        finally:
+            self._checking_class_names = False
 
     def _showSaveError(self, filename, error):
         QMessageBox.critical(
@@ -1250,37 +1364,12 @@ class MainWindow(QMainWindow):
         self.actions.createMode.setEnabled(True)
 
     def saveFileDialog(self):
-        caption = self.tr("Choose File")
-        filters = self.tr("Label files")
-        if self.output_dir:
-            dlg = QtWidgets.QFileDialog(
-                self, caption, self.output_dir, filters
-            )
-        else:
-            dlg = QtWidgets.QFileDialog(
-                self, caption, self.currentPath(), filters
-            )
-        dlg.setDefaultSuffix(LabelFile.suffix[1:])
-        dlg.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
-        dlg.setOption(QtWidgets.QFileDialog.DontConfirmOverwrite, False)
-        dlg.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, False)
-        basename = os.path.basename(self.current_img)[:-4]
-        if self.output_dir:
-            default_labelfile_name = osp.join(
-                self.output_dir, basename + LabelFile.suffix
-            )
-        else:
-            default_labelfile_name = osp.join(
-                self.currentPath(), basename + LabelFile.suffix
-            )
-        filename = dlg.getSaveFileName(
-            self,
-            self.tr("Choose File"),
-            default_labelfile_name,
-            self.tr("Label files (*%s)") % LabelFile.suffix,
+        filename, _ = QFileDialog.getSaveFileName(
+            self, self.tr("Save annotation as"), self.current_output_filename,
+            self.tr("Label files (*.json)"),
         )
-        if isinstance(filename, tuple):
-            filename, _ = filename
+        if filename and not osp.splitext(filename)[1]:
+            filename += LabelFile.suffix
         return filename
 
     def currentPath(self):
@@ -1325,6 +1414,8 @@ class MainWindow(QMainWindow):
         if self.actions.save.isEnabled():
             if not self.saveFile():
                 return
+        elif self.current_img and not self._checkClassNameConsistency(self.current_output_filename):
+            return
         if self.current_img_index < self.img_len - 1:
             self.current_img_index += 1
             self.current_img = self.img_list[self.current_img_index]
@@ -1337,6 +1428,8 @@ class MainWindow(QMainWindow):
         if self.actions.save.isEnabled():
             if not self.saveFile():
                 return
+        elif self.current_img and not self._checkClassNameConsistency(self.current_output_filename):
+            return
         if self.current_img_index > 0:
             self.current_img_index -= 1
             self.current_img = self.img_list[self.current_img_index]
@@ -1356,6 +1449,8 @@ class MainWindow(QMainWindow):
             if reply == QMessageBox.Yes:
                 if not self.saveFile():
                     return
+        elif self.current_img and not self._checkClassNameConsistency(self.current_output_filename):
+            return
         if self.img_len == 0:
             return
         items = [f"{i} - {os.path.basename(p)}" for i, p in enumerate(self.img_list)]
@@ -2017,6 +2112,12 @@ class MainWindow(QMainWindow):
                 )
                 event.ignore()
                 return
+        if getattr(self, "_class_name_cancel_event", None) is not None:
+            self._class_name_cancel_event.set()
+        executor = getattr(self, "_class_name_executor", None)
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
+            self._class_name_executor = None
         event.accept()
 
     def resizeEvent(self, event):
