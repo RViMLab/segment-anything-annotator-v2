@@ -113,6 +113,15 @@ memory but use larger model backbones.
 
 The application writes one Labelme-compatible JSON file per image.
 
+If no save directory was selected, the first Save asks **“No output folder
+selected. Save to the app's output folder?”** Choose a folder, confirm **Use
+default**, or cancel while keeping your edits open. The default is the
+`output` directory beside `annotator.py`, created on startup and recreated
+when needed. The confirmed choice is used for the rest of that session.
+Changing the save directory after editing preserves unsaved polygons. Default
+output is ignored by Git; deleting its contents is safe only when those files
+are no longer needed. Review mode uses its configured output directory.
+
 ### Prompt and editing controls
 
 - **Point Prompt:** left-click for positive points and right-click for negative

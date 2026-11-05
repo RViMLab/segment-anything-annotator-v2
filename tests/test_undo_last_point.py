@@ -30,7 +30,7 @@ class UndoLastPointTests(unittest.TestCase):
                                      "points": [[1, 1], [8, 1], [8, 8]]}]}
         (self.root / "frame-1.json").write_text(json.dumps(self.document))
         self.window = MainWindow(global_w=1000, global_h=1600)
-        self.window.current_output_dir = str(self.root)
+        self.window.setOutputDirectory(str(self.root))
         self.window.img_list = [str(path) for path in sorted(self.root.glob("*.png"))]
         self.window.img_len = 2
         self.window.current_img_index = 0

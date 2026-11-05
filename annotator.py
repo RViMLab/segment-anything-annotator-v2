@@ -72,7 +72,8 @@ class MainWindow(QMainWindow):
 
         
         self._noSelectionSlot = False
-        self.current_output_dir = 'output'
+        self.current_output_dir = osp.join(osp.dirname(osp.abspath(__file__)), "output")
+        self._save_destination_confirmed = False
         os.makedirs(self.current_output_dir, exist_ok=True)
         self.current_output_filename = ''
         self.legacy_label_indices = legacy_label_indices
@@ -153,7 +154,9 @@ class MainWindow(QMainWindow):
         )
         self.shape_dock.setObjectName("Labels")
 
-        self.category_list = [i.strip() for i in open('categories.txt', 'r', encoding='utf-8').readlines()]
+        with open(osp.join(osp.dirname(osp.abspath(__file__)), "categories.txt"),
+                  "r", encoding="utf-8") as category_file:
+            self.category_list = [line.strip() for line in category_file]
         self.labelDialog = LabelDialog(
             parent=self,
             labels=self.category_list,
@@ -1185,14 +1188,56 @@ class MainWindow(QMainWindow):
         #     self._saveFile(self.saveFileDialog())
         #self._saveFile(self.saveFileDialog())
         #print(self.current_output_filename)
+        if not self.current_img or not self.current_output_filename:
+            return False
+        if self.review_config is None and not self._save_destination_confirmed:
+            if not self.confirmSaveDestination():
+                return False
         return self._saveFile(self.current_output_filename)
+
+    def confirmSaveDestination(self):
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(self.tr("Choose output folder"))
+        dialog.setIcon(QMessageBox.Question)
+        dialog.setText(self.tr("No output folder selected. Save to the app's output folder?"))
+        dialog.setInformativeText(osp.abspath(self.current_output_dir))
+        choose = dialog.addButton(self.tr("Choose folder…"), QMessageBox.ActionRole)
+        use_default = dialog.addButton(self.tr("Use default"), QMessageBox.AcceptRole)
+        dialog.addButton(QMessageBox.Cancel)
+        dialog.setDefaultButton(choose)
+        dialog.exec_()
+        if dialog.clickedButton() is choose:
+            directory = QFileDialog.getExistingDirectory(self, self.tr("Choose output folder"),
+                                                         self.current_output_dir)
+            return bool(directory) and self.setOutputDirectory(directory, reload_if_clean=False)
+        if dialog.clickedButton() is use_default:
+            return self.setOutputDirectory(self.current_output_dir, reload_if_clean=False)
+        return False
+
+    def setOutputDirectory(self, directory, reload_if_clean=True):
+        directory = osp.abspath(directory)
+        try:
+            os.makedirs(directory, exist_ok=True)
+        except OSError as error:
+            self._showSaveError(directory, error)
+            return False
+        dirty = self.actions.save.isEnabled()
+        self.current_output_dir = directory
+        self._save_destination_confirmed = True
+        self.actions.saveDirectory.setToolTip(f"Output folder: {directory}")
+        if self.current_img:
+            self.current_output_filename = osp.join(
+                directory, osp.splitext(osp.basename(self.current_img))[0] + ".json",
+            )
+            if reload_if_clean and not dirty:
+                self.loadImg()
+        return True
 
     def _saveFile(self, filename):
         if not filename:
             return False
         try:
-            if self.review_config is not None:
-                os.makedirs(osp.dirname(filename), exist_ok=True)
+            os.makedirs(osp.dirname(osp.abspath(filename)), exist_ok=True)
             if not self.saveLabels(filename):
                 return False
         except (OSError, ValueError, TypeError) as error:
@@ -1508,11 +1553,7 @@ class MainWindow(QMainWindow):
         directory = QFileDialog.getExistingDirectory(self, 'choose target fold','.')
         if directory == '':
             return
-        else:
-            self.current_output_dir = directory
-            os.makedirs(self.current_output_dir, exist_ok=True)
-            if self.current_img:
-                self.loadImg()
+        if self.setOutputDirectory(directory):
             return directory
 
 
