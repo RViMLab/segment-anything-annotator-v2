@@ -155,7 +155,7 @@ class AnnotationRoundTripTests(unittest.TestCase):
 
     def test_reordering_shapes_preserves_each_shapes_own_metadata(self):
         self.data["shapes"].append(dict(
-            deepcopy(self.data["shapes"][0]), label="second", description="second metadata",
+            deepcopy(self.data["shapes"][0]), label="second", group_id=18, description="second metadata",
         ))
         self.load_fixture()
         shapes = list(reversed(self.window.canvas.shapes))

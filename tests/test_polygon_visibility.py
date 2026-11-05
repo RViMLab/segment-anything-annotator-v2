@@ -33,7 +33,7 @@ class PolygonVisibilityTests(unittest.TestCase):
         self.data = {"imageWidth": 32, "imageHeight": 24, "shapes": [
             {"label": label, "group_id": group, "shape_type": "polygon", "flags": {},
              "points": [[2, 2], [15, 2], [15, 15]]}
-            for label, group in (("forceps", 3), ("tip", 3), ("3", 4), ("other", 13))
+            for label, group in (("forceps", 3), ("forceps", 3), ("3", 4), ("other", 13))
         ]}
         for name in ("frame-1", "frame-2"):
             Image.new("RGB", (32, 24)).save(self.images / f"{name}.png")

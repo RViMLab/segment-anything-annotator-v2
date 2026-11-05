@@ -27,7 +27,7 @@ class PolygonMovementTests(unittest.TestCase):
             {"label": "tool", "group_id": 3, "flags": {"verified": True},
              "description": "retain", "shape_type": "polygon", "custom": ["metadata"],
              "points": [[20.25, 20.5], [30.75, 20.5], [25.5, 30.25]]},
-            {"label": "tip", "group_id": 3, "flags": {}, "shape_type": "polygon",
+            {"label": "tool", "group_id": 3, "flags": {}, "shape_type": "polygon",
              "points": [[40.25, 40.5], [50.75, 40.5], [45.5, 50.25]]},
         ]}
         (self.root / "frame.json").write_text(json.dumps(self.data))

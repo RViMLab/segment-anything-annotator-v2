@@ -212,6 +212,26 @@ These controls are available in annotation and review mode. They affect the
 preview only; source images, saved image data, polygons, and SAM input stay
 unchanged.
 
+### Class-name consistency warnings
+
+Before saving or leaving a completed frame, the app compares current names and
+numeric group IDs with saved annotations for the loaded dataset. Review mode
+prefers a reviewed JSON for each frame, falling back to its original. The check
+also catches multiple names for one ID within the current image. Names are
+compared case-sensitively after trimming surrounding whitespace; no saved text
+is changed by the check.
+
+Warnings show up to three example filenames and, only when needed, the number
+of other images. **Review names** keeps the current frame/edits open and stops
+the pending save or departure. **Save anyway** saves the entered values without
+renaming or changing IDs. An unchanged acknowledged conflict is not repeated;
+changed relevant names are checked again. Large scans run in a cancellable
+worker and cache names/IDs only. Unreadable annotations are reported explicitly.
+
+This is a warning, not an enforced class-name mapping or automatic labeling.
+The synthetic-data generator and complete branch-by-branch test checklist are
+in [docs/MANUAL_TEST_PENDING.md](docs/MANUAL_TEST_PENDING.md).
+
 ## Annotation review mode
 
 Review mode reuses the image annotator and polygon canvas to inspect existing
