@@ -169,7 +169,8 @@ objects. **0 and 4–9** still toggle objects. Accepting/rejecting proposals or
 changing frames restores all digits to object visibility. There are three
 proposal buttons labelled **1**, **2**, and **3**, disabled when no proposals
 are active. Previews preserve the source image aspect ratio, including after
-window resizing, with space reserved for each button's digit.
+window resizing. Each card reserves a separate area for its larger, bold digit
+so the caption stays readable beside the image in maximized windows.
 
 Use **Invert colours** below **Reset B/C** to toggle a colour-negative preview,
 for example when inspecting difficult endolaser frames. Inversion applies after

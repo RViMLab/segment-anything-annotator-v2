@@ -151,6 +151,51 @@ class PolygonVisibilityTests(unittest.TestCase):
                                          max(width, height))
                     self.assertTrue(button.isEnabled())
 
+    def test_proposal_captions_are_large_and_separate_from_previews(self):
+        self.generate_proposals()
+        for window_width, window_height in ((1000, 1600), (1920, 1080), (3840, 2160)):
+            self.window._updateResponsiveLayout(window_width, window_height)
+            for button in self.window.button_proposal_list:
+                caption, preview = button.captionRect(), button.previewRect()
+                self.assertGreaterEqual(button.captionFont().pointSizeF(), 14)
+                self.assertTrue(button.captionFont().bold())
+                self.assertGreaterEqual(caption.left() - preview.right(), 12)
+                self.assertGreaterEqual(caption.width(), 48)
+                self.assertFalse(caption.intersects(preview))
+                self.assertTrue(button.contentsRect().contains(caption))
+                self.assertLessEqual(button.iconSize().width(), preview.width())
+                self.assertLessEqual(button.iconSize().height(), preview.height())
+        self.window.canvas.setFocus()
+        QtTest.QTest.keyClick(self.window.canvas, QtCore.Qt.Key_2)
+        self.assertIs(self.window.sam_mask, self.window.sam_mask_proposal[1])
+        self.window.button_proposal1.click()
+        self.assertIs(self.window.sam_mask, self.window.sam_mask_proposal[0])
+
+    def test_caption_is_actually_rendered_in_its_reserved_area(self):
+        families = QtGui.QFontDatabase().families()
+        if not families:
+            # Windows' offscreen Qt plugin has no system fonts by default.
+            font_path = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts/segoeui.ttf"
+            if font_path.is_file():
+                font_id = QtGui.QFontDatabase.addApplicationFont(str(font_path))
+                families = QtGui.QFontDatabase.applicationFontFamilies(font_id)
+        if not families:
+            self.skipTest("No font is available for the offscreen render check")
+        self.generate_proposals()
+        button = self.window.button_proposal1
+        button.setFont(QtGui.QFont(families[0], 9))
+        area = button.captionRect().adjusted(4, 4, -4, -4)
+        numbered = button.grab().toImage()
+        button.setText("")
+        empty = button.grab().toImage()
+        button.setText("1")
+        changed_pixels = sum(
+            numbered.pixel(x, y) != empty.pixel(x, y)
+            for x in range(area.left(), area.right() + 1)
+            for y in range(area.top(), area.bottom() + 1)
+        )
+        self.assertGreater(changed_pixels, 5)
+
     def assert_proposal_buttons_inactive(self):
         self.assertEqual([button.text() for button in self.window.button_proposal_list],
                          ["1", "2", "3"])
