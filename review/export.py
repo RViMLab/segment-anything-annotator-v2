@@ -35,6 +35,9 @@ CSV_COLUMNS = (
     "created_at",
     "updated_at",
     "is_active",
+    "class_mask_changed",
+    "class_mask_error",
+    "class_mask_policy",
 )
 
 FRAME_NAME_PATTERN = re.compile(
@@ -123,6 +126,9 @@ def export_session_csv(storage, session, destination=None) -> Path:
                         "created_at": item.created_at,
                         "updated_at": item.updated_at,
                         "is_active": "1" if item.is_active else "0",
+                        "class_mask_changed": _optional_bool(item.class_mask_changed),
+                        "class_mask_error": item.class_mask_error or "",
+                        "class_mask_policy": item.class_mask_policy or "",
                     }
                 )
         os.replace(temporary_name, destination)

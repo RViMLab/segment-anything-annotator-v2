@@ -155,6 +155,20 @@ class AnnotationSavingTests(unittest.TestCase):
         self.assertFalse(self.output.stat().st_mode & stat.S_IWRITE)
         self.assertEqual(list(self.output.parent.glob("*.tmp")), [])
 
+    def test_review_decision_persists_numeric_class_mask_changes(self):
+        self.original_data["shapes"][0]["group_id"] = 3
+        self.original.write_text(json.dumps(self.original_data), encoding="utf-8")
+        self.window.loadImg()
+        self.window.labelList[0].shape().group_id = 4
+        self.window.actions.save.setEnabled(True)
+        self.assertTrue(self.window.recordReviewDecision(ReviewStatus.MINOR_CORRECTION))
+        item = self.window.review_storage.list_items(self.window.review_session.session_id)[0]
+        self.assertFalse(item.raster_mask_changed)
+        self.assertTrue(item.class_mask_changed)
+        self.assertIsNone(item.class_mask_error)
+        self.assertIn("numeric-group-id", item.class_mask_policy)
+        self.assertEqual(json.loads(self.original.read_text())["shapes"][0]["group_id"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()
