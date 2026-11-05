@@ -57,7 +57,7 @@ class ImageDisplayTests(unittest.TestCase):
         for name in ("frame-1", "frame-2"):
             (self.annotations / f"{name}.json").write_text(json.dumps(self.annotation))
         self.window = MainWindow(global_w=1000, global_h=1600)
-        self.window.current_output_dir = str(self.annotations)
+        self.window.setOutputDirectory(str(self.annotations))
         self.window.img_list = [str(path) for path in sorted(self.images.glob("*.png"))]
         self.window.img_len = len(self.window.img_list)
         self.window.current_img_index = 0

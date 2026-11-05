@@ -48,7 +48,7 @@ class AnnotationRoundTripTests(unittest.TestCase):
         }
         self.window = MainWindow(global_w=1000, global_h=1600)
         self.window.category_list = ["tool", "other"]
-        self.window.current_output_dir = str(self.annotations)
+        self.window.setOutputDirectory(str(self.annotations))
         self.window.img_list = [str(path) for path in sorted(self.images.glob("*.png"))]
         self.window.img_len = 2
         self.window.current_img_index = 0

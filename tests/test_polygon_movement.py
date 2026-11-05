@@ -32,7 +32,7 @@ class PolygonMovementTests(unittest.TestCase):
         ]}
         (self.root / "frame.json").write_text(json.dumps(self.data))
         self.window = MainWindow(global_w=1000, global_h=1600)
-        self.window.current_output_dir = str(self.root)
+        self.window.setOutputDirectory(str(self.root))
         self.window.current_img = str(self.image)
         self.window.current_img_index = 0
         self.window.loadImg()
