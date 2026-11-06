@@ -24,7 +24,8 @@ from qtpy import QtCore
 from qtpy import QtGui, QtWidgets
 from canvas import Canvas
 import utils
-from utils.class_name_consistency import ClassNameChecker, ConsistencyReport
+from utils.class_name_consistency import ClassNameChecker, ConsistencyReport, numeric_group_id
+from utils.polygon_label_list import PolygonLabelListWidget
 from utils.download_model import download_model
 from utils.app_icon import configure_qt_application, configure_windows_app_id
 from utils.annotation_io import atomic_write_annotation
@@ -34,7 +35,7 @@ from utils.geometry_operations import (
     GeometrySafetyError, describe_change, exact_mask_polygons, polygon_mask,
 )
 
-from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelDialog, LabelListWidget, LabelListWidgetItem, ZoomWidget
+from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelDialog, LabelListWidgetItem, ZoomWidget
 from labelme import PY2
 from labelme.label_file import LabelFile
 from labelme.label_file import LabelFileError
@@ -147,11 +148,13 @@ class MainWindow(QMainWindow):
             fit_to_content={'column': True, 'row': False},
         )
 
-        self.labelList = LabelListWidget()
+        self.labelList = PolygonLabelListWidget()
         self.labelList.itemSelectionChanged.connect(self.labelSelectionChanged)
         self.labelList.itemDoubleClicked.connect(self.editLabel)
         self.labelList.itemChanged.connect(self.labelItemChanged)
         self.labelList.itemDropped.connect(self.labelOrderChanged)
+        self.labelList.mergeRequested.connect(self.mergeDroppedAnnotations)
+        self.labelList.dropRejected.connect(self._geometryWarning)
 
         self.shape_dock = QDockWidget(
             self.tr("Polygon Labels"), self
@@ -2516,7 +2519,21 @@ class MainWindow(QMainWindow):
     def _perform_merge(self, source_shape, target_shape):
         return self._performMaskOperation(source_shape, target_shape, merge=True)
 
-    def _performMaskOperation(self, source_shape, target_shape, merge):
+    def mergeDroppedAnnotations(self, source_shape, target_shape):
+        if source_shape is target_shape:
+            return False
+        if any(shape.shape_type != "polygon" or len(shape.points) < 3 for shape in (source_shape, target_shape)):
+            return self._geometryWarning("Only polygons with at least three vertices can be merged.")
+        source_id, target_id = numeric_group_id(source_shape.group_id), numeric_group_id(target_shape.group_id)
+        if source_id is None or target_id is None:
+            return self._geometryWarning("Both annotations need a numeric class/group ID before merging.")
+        if source_id != target_id:
+            return self._geometryWarning("The annotations belong to different classes (group IDs).")
+        if not np.any(self._shapeMask(source_shape) & self._shapeMask(target_shape)):
+            return self._geometryWarning("The annotations have no overlapping pixels.")
+        return self._performMaskOperation(source_shape, target_shape, merge=True, confirm_drop=True)
+
+    def _performMaskOperation(self, source_shape, target_shape, merge, confirm_drop=False):
         if source_shape is None or target_shape is None or source_shape is target_shape:
             return False
         if any(s.shape_type != "polygon" or len(s.points) < 3
@@ -2531,6 +2548,8 @@ class MainWindow(QMainWindow):
                 metadata.setdefault("shape_type", "polygon")
                 metadata.setdefault("group_id", None)
                 metadata.setdefault("flags", {})
+                if confirm_drop:
+                    metadata["group_id"] = numeric_group_id(metadata["group_id"])
             if source_metadata != target_metadata:
                 return self._geometryWarning(
                     "Merge requires matching labels, object IDs, flags, and metadata. "
@@ -2564,9 +2583,17 @@ class MainWindow(QMainWindow):
             shape.selected = False
             created.append(shape)
         removed = [source_shape, target_shape] if merge else [target_shape]
-        if not self._confirmGeometryChange(
+        if confirm_drop:
+            confirmed = QMessageBox.question(
+                self, self.tr("Merge annotations"),
+                self.tr("Do you want to merge the 2 annotations?") + "\n\n" + report.describe(),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            ) == QMessageBox.Yes
+        else:
+            confirmed = self._confirmGeometryChange(
                 "Merge polygons" if merge else "Subtract polygons", report,
-                sum(len(s.points) for s in removed), sum(len(s.points) for s in created)):
+                sum(len(s.points) for s in removed), sum(len(s.points) for s in created))
+        if not confirmed:
             return False
         replacements = {s: [] for s in removed}
         replacements[template] = created
@@ -2634,8 +2661,8 @@ class MainWindow(QMainWindow):
         self.canvas.setShapeVisible(shape, item.checkState() == Qt.Checked)
 
     def labelOrderChanged(self):
-        self.setDirty()
         self.canvas.loadShapes([item.shape() for item in self.labelList])
+        self.setDirty()
 
     def addLabel(self, shape):
         if shape.group_id is None:
