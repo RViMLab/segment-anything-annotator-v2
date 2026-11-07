@@ -22,6 +22,7 @@ save annotations in Labelme-compatible JSON files.
 - Manual polygon creation and vertex editing
 - Multiple mask proposals
 - Category and object ID annotation
+- Optional dataset-specific class names filled from numeric group IDs
 - Merge and subtract polygon operations
 - Polygon simplification
 - Hide/show controls for all polygons
@@ -85,6 +86,28 @@ The `--app_resolution` value is `height,width`.
 | `--model_type` | SAM checkpoint type: `vit_b`, `vit_l`, or `vit_h` |
 | `--keep_input_size` | Keep the original image size for SAM when `True` |
 | `--max_size` | Maximum input dimension when resizing is enabled |
+
+## Class names from group IDs
+
+Use **Class mapping** in the toolbar to define group IDs and class names for
+your dataset, for example `3 → forceps`. Enable the mapping and click **Apply**.
+When creating a polygon, accepting SAM results, or editing a label, enter an ID
+or select a class: its name is filled automatically. Undefined IDs cannot be
+confirmed. ID `0` is supported.
+
+Use **Save…** / **Load…** in setup to reuse a mapping JSON file. Load the
+appropriate mapping when restarting the app or changing datasets; mappings
+apply throughout the current session, including review mode. Disable the
+mapping to restore free-form names and IDs. Ordinary **Category File** text
+files continue to provide name suggestions when mapping is disabled.
+
+Loading a mapping does not relabel existing annotations. Their names change
+only when you confirm a label edit. Existing class-name consistency warnings
+still check imported/older annotations. Mapping JSON files use this format:
+
+```json
+{"version": 1, "classes": [{"group_id": 0, "label": "background"}, {"group_id": 3, "label": "forceps"}]}
+```
 
 ## SAM checkpoints
 
