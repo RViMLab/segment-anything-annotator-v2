@@ -25,6 +25,7 @@ from qtpy import QtGui, QtWidgets
 from canvas import Canvas
 import utils
 from utils.class_name_consistency import ClassNameChecker, ConsistencyReport, numeric_group_id
+from utils.class_mapping_dialog import ClassMappingDialog, MappedLabelDialog
 from utils.polygon_label_list import PolygonLabelListWidget
 from utils.download_model import download_model
 from utils.app_icon import configure_qt_application, configure_windows_app_id
@@ -35,7 +36,7 @@ from utils.geometry_operations import (
     GeometrySafetyError, describe_change, exact_mask_polygons, polygon_mask,
 )
 
-from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelDialog, LabelListWidgetItem, ZoomWidget
+from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelListWidgetItem, ZoomWidget
 from labelme import PY2
 from labelme.label_file import LabelFile
 from labelme.label_file import LabelFileError
@@ -139,14 +140,8 @@ class MainWindow(QMainWindow):
                 "Press 'Esc' to deselect."
             )
         )
-        self.labelDialog = LabelDialog(
-            parent=self,
-            labels=[],
-            sort_labels=False,
-            show_text_field=True,
-            completion='contains',
-            fit_to_content={'column': True, 'row': False},
-        )
+        self.class_mapping = {}
+        self.class_mapping_enabled = False
 
         self.labelList = PolygonLabelListWidget()
         self.labelList.itemSelectionChanged.connect(self.labelSelectionChanged)
@@ -164,7 +159,7 @@ class MainWindow(QMainWindow):
         with open(osp.join(osp.dirname(osp.abspath(__file__)), "categories.txt"),
                   "r", encoding="utf-8") as category_file:
             self.category_list = [line.strip() for line in category_file]
-        self.labelDialog = LabelDialog(
+        self.labelDialog = MappedLabelDialog(
             parent=self,
             labels=self.category_list,
             sort_labels=False,
@@ -371,6 +366,11 @@ class MainWindow(QMainWindow):
             'None',
             "objects",
             self.tr("Category File"),
+            enabled=True,
+        )
+        classMapping = action(
+            self.tr("Class mapping"), self.configureClassMapping,
+            None, "objects", self.tr("Define class names for group IDs in this dataset"),
             enabled=True,
         )
         imageDirectory = action(
@@ -609,6 +609,7 @@ class MainWindow(QMainWindow):
 
         self.actions = utils.struct(
             categoryFile=categoryFile,
+            classMapping=classMapping,
             imageDirectory=imageDirectory,
             saveDirectory=saveDirectory,
             showLabels=self.showLabels,
@@ -677,6 +678,7 @@ class MainWindow(QMainWindow):
 
         self.toolbar = self.addToolBar('Tool')
         self.toolbar.addAction(categoryFile)
+        self.toolbar.addAction(classMapping)
         self.toolbar.addAction(imageDirectory)
         self.toolbar.addAction(saveDirectory)
         self.toolbar.addAction(self.showLabels)
@@ -1702,16 +1704,39 @@ class MainWindow(QMainWindow):
                 data = f.readlines()
                 self.category_list = [i.strip() for i in data]
                 self.category_list.sort()
-                self.labelDialog = LabelDialog(
+                old_dialog = self.labelDialog
+                self.labelDialog = MappedLabelDialog(
                     parent=self,
+                    mapping=self.class_mapping if self.class_mapping_enabled else None,
                     labels=self.category_list,
                     sort_labels=False,
                     show_text_field=True,
                     completion='contains',
                     fit_to_content={'column': True, 'row': False},
                 )
+                old_dialog.deleteLater()
         except Exception as e:
             pass
+
+    def configureClassMapping(self):
+        dialog = ClassMappingDialog(self, self.class_mapping, self.class_mapping_enabled)
+        try:
+            if dialog.exec_() != QtWidgets.QDialog.Accepted:
+                return
+            self.class_mapping = dict(dialog.result_mapping)
+            self.class_mapping_enabled = dialog.enabled.isChecked()
+            old_dialog = self.labelDialog
+            self.labelDialog = MappedLabelDialog(
+                parent=self, labels=self.category_list, sort_labels=False,
+                show_text_field=True, completion='contains',
+                fit_to_content={'column': True, 'row': False},
+                mapping=self.class_mapping if self.class_mapping_enabled else None,
+            )
+            old_dialog.deleteLater()
+            self.actions.classMapping.setText(
+                self.tr("Class mapping ✓") if self.class_mapping_enabled else self.tr("Class mapping"))
+        finally:
+            dialog.deleteLater()
 
     def clickLoadSAM(self):
         download_model(self.model_type)
@@ -2012,16 +2037,19 @@ class MainWindow(QMainWindow):
     def addSamMask(self):
         if len(self.sam_mask) > 0:
             label = 'Object'
-            group_id = self.getMaxId() + 1
+            group_id = None if self.class_mapping_enabled else self.getMaxId() + 1
             xx = self.labelDialog.popUp(
                 text=label,
                 flags={},
                 group_id=group_id,
             )
             if len(xx) == 4:
-                label, _, group_id,_ = xx
+                label, flags, group_id, description = xx
             else:
-                label, _, group_id = xx
+                label, flags, group_id = xx
+                description = ""
+            if label is None and self.class_mapping_enabled:
+                return  # Keep proposals available after cancelling the class choice.
             if label == None:
                 label = 'Object'
             if type(group_id) != int:
@@ -2029,6 +2057,9 @@ class MainWindow(QMainWindow):
             for sam_mask in self.sam_mask:
                 sam_mask.label = label
                 sam_mask.group_id = group_id
+                if self.class_mapping_enabled:
+                    sam_mask.flags = dict(flags)
+                    sam_mask.other_data["description"] = description
                 self.addLabel(sam_mask)
         self.canvas.cancelDrawing()
         self.sam_mask = []
@@ -2092,7 +2123,7 @@ class MainWindow(QMainWindow):
         flags = {}
         group_id = None
         description = ""
-        if not text:
+        if not text or self.class_mapping_enabled:
             previous_text = self.labelDialog.edit.text()
             xx = self.labelDialog.popUp(text)
             if len(xx) == 4:
