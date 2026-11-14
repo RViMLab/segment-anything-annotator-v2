@@ -23,7 +23,7 @@ but use a fresh copy of its annotations for these checks.
    must remain visible in the list, and their visibility checkboxes must work.
 4. Try overlapping polygons with the same ID but different labels or metadata.
    The merge must be blocked to avoid discarding information. Existing checks
-   also block unions with holes and merges across intervening overlapping rows.
+   also block unrepresentable results and merges across intervening overlapping rows.
 5. Drag an entry to the **top or bottom edge** of another row, following the
    horizontal insertion line: entries must reorder without a merge popup.
    Check overlap order on the image, save/reopen, and test Ctrl+U after another
