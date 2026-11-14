@@ -11,14 +11,45 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from annotator import MainWindow
 from PIL import Image
-from qtpy import QtCore, QtWidgets
+from qtpy import QtCore, QtTest, QtWidgets
 from shape import Shape
 from utils.annotation_document import shape_to_annotation
-from utils.class_mapping import load_mapping, mapping_from_rows, save_mapping
+from utils.class_mapping import (
+    load_categories, load_mapping, mapping_from_rows, propose_category_rows, save_mapping,
+)
 from utils.class_mapping_dialog import ClassMappingDialog, MappedLabelDialog
 
 
 class MappingFileTests(unittest.TestCase):
+    def test_plain_category_proposals_preserve_file_order_bom_unicode_and_skip_blank_lines(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "classes.txt"
+            path.write_text("\ufeffzebra\n\n dog \nrétine\n", encoding="utf-8")
+            names = load_categories(path)
+        self.assertEqual(names, ["zebra", "dog", "rétine"])
+        rows, prefixed = propose_category_rows(names)
+        self.assertFalse(prefixed)
+        self.assertEqual(rows, [(0, "zebra"), (1, "dog"), (2, "rétine")])
+
+    def test_numeric_prefix_ids_keep_literal_names_and_duplicate_ids_remain_editable(self):
+        rows, prefixed = propose_category_rows(["7_forceps", "1_retina", "7_other"])
+        self.assertTrue(prefixed)
+        self.assertEqual(rows, [(7, "7_forceps"), (1, "1_retina"), (7, "7_other")])
+        with self.assertRaisesRegex(ValueError, "more than once"):
+            mapping_from_rows(rows)
+
+    def test_mixed_or_numeric_only_names_use_file_order_without_guessing_missing_ids(self):
+        rows, prefixed = propose_category_rows(["7_forceps", "retina", "123"])
+        self.assertFalse(prefixed)
+        self.assertEqual(rows, [(0, "7_forceps"), (1, "retina"), (2, "123")])
+
+    def test_empty_category_file_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "empty.txt"
+            path.write_text("\n \n")
+            with self.assertRaisesRegex(ValueError, "no class names"):
+                load_categories(path)
+
     def test_roundtrip_zero_large_ids_and_unicode(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "classes.json"
@@ -257,11 +288,152 @@ class MappingGuiTests(unittest.TestCase):
         self.enable_mapping()
         path = self.root / "names.txt"
         path.write_text("cat\ndog\n")
-        with patch("annotator.QFileDialog.getOpenFileName", return_value=(str(path), "")):
+        with patch("annotator.QFileDialog.getOpenFileName", return_value=(str(path), "")), \
+                patch.object(ClassMappingDialog, "exec_", return_value=QtWidgets.QDialog.Rejected):
             self.window.clickCategoryChoose()
         self.assertEqual(self.window.category_list, ["cat", "dog"])
         self.assertTrue(self.window.class_mapping_enabled)
         self.assertEqual(self.window.labelDialog.mapping[3], "forceps")
+
+    def test_fresh_setup_row_and_apply_enables_mapping_without_extra_checkbox_step(self):
+        def enter_row(dialog):
+            dialog.addRow(3, "forceps")
+            dialog.apply()
+            return dialog.result()
+
+        with patch.object(ClassMappingDialog, "exec_", enter_row):
+            self.window.configureClassMapping()
+        self.assertTrue(self.window.class_mapping_enabled)
+        self.assertEqual(self.window.class_mapping, {3: "forceps"})
+        self.assertEqual(self.window.labelDialog.mapping, {3: "forceps"})
+        self.assertIn("enabled", self.window.actions.classMapping.toolTip())
+
+    def test_category_import_requires_confirmation_and_edits_ids_before_activation(self):
+        path = self.root / "names.txt"
+        path.write_text("zebra\nforceps\n")
+
+        def review(dialog):
+            self.assertEqual(dialog.readRows(), {0: "zebra", 1: "forceps"})
+            self.assertIn("starting at 0", dialog.import_notice.text())
+            self.assertFalse(self.window.class_mapping_enabled)
+            dialog.table.item(1, 0).setText("3")
+            dialog.apply()
+            return dialog.result()
+
+        with patch("annotator.QFileDialog.getOpenFileName", return_value=(str(path), "")), \
+                patch.object(ClassMappingDialog, "exec_", review):
+            self.window.clickCategoryChoose()
+        self.assertEqual(self.window.category_list, ["zebra", "forceps"])
+        self.assertEqual(self.window.labelDialog.mapping, {0: "zebra", 3: "forceps"})
+        self.assertTrue(self.window.class_mapping_enabled)
+        # Both annotation paths see the reviewed mapping, not category-only choices.
+        dialog = self.window.labelDialog
+
+        def choose():
+            dialog.edit_group_id.setText("3")
+            return QtWidgets.QDialog.Accepted
+
+        shape = self.shape(label="", group=None)
+        self.window.canvas.loadShapes([shape])
+        with patch.object(dialog, "exec_", side_effect=choose):
+            self.window.newShape()
+        self.assertEqual((shape.group_id, shape.label), (3, "forceps"))
+        proposal = self.shape()
+        self.window.sam_mask = [proposal]
+        with patch.object(dialog, "exec_", side_effect=choose):
+            self.window.addSamMask()
+        self.assertEqual((proposal.group_id, proposal.label), (3, "forceps"))
+
+    def test_category_file_then_manual_setup_still_activates_mapping(self):
+        path = self.root / "names.txt"
+        path.write_text("cat\ndog\n")
+        with patch("annotator.QFileDialog.getOpenFileName", return_value=(str(path), "")), \
+                patch.object(ClassMappingDialog, "exec_", return_value=QtWidgets.QDialog.Rejected):
+            self.window.clickCategoryChoose()
+        self.assertFalse(self.window.class_mapping_enabled)
+
+        def enter_row(dialog):
+            dialog.addRow(3, "forceps")
+            dialog.apply()
+            return dialog.result()
+
+        with patch.object(ClassMappingDialog, "exec_", enter_row):
+            self.window.configureClassMapping()
+        self.assertEqual(self.window.labelDialog.mapping, {3: "forceps"})
+        self.assertEqual(self.window.labelDialog.labelList.count(), 1)
+
+    def test_text_load_in_setup_allows_prefix_review_without_relabelling_annotations(self):
+        shape = self.shape()
+        self.window.loadShapes([shape])
+        before = shape_to_annotation(shape)
+        dialog = ClassMappingDialog(self.window, {}, False)
+        self.dialogs.append(dialog)
+        path = self.root / "names.txt"
+        path.write_text("7_forceps\n1_retina\n")
+        with patch("utils.class_mapping_dialog.QtWidgets.QFileDialog.getOpenFileName", return_value=(str(path), "")):
+            dialog.loadFile()
+        self.assertEqual(dialog.readRows(), {1: "1_retina", 7: "7_forceps"})
+        self.assertIn("numeric prefixes", dialog.import_notice.text())
+        self.assertEqual(shape_to_annotation(shape), before)
+        self.assertFalse(self.window.class_mapping_enabled)
+
+    def test_apply_button_commits_active_cell_editor_and_enables_new_setup(self):
+        dialog = ClassMappingDialog(self.window, {}, False)
+        self.dialogs.append(dialog)
+        dialog.show()
+        dialog.activateWindow()
+        dialog.addRow()
+        self.app.processEvents()
+        for column, text in [(0, "3"), (1, "forceps")]:
+            dialog.table.setCurrentCell(0, column)
+            dialog.table.editItem(dialog.table.item(0, column))
+            self.app.processEvents()
+            editor = QtWidgets.QApplication.focusWidget()
+            self.assertIsInstance(editor, QtWidgets.QLineEdit)
+            QtTest.QTest.keyClicks(editor, text)
+        # Click Apply while the class-name cell is still being edited.
+        QtTest.QTest.mouseClick(dialog.buttons.button(QtWidgets.QDialogButtonBox.Apply), QtCore.Qt.LeftButton)
+        self.assertEqual(dialog.result(), QtWidgets.QDialog.Accepted)
+        self.assertTrue(dialog.enabled.isChecked())
+        self.assertEqual(dialog.result_mapping, {3: "forceps"})
+
+    def test_editing_disabled_setup_reenables_it_but_explicit_disable_remains_available(self):
+        dialog = ClassMappingDialog(self.window, {3: "cat"}, False)
+        self.dialogs.append(dialog)
+        self.assertFalse(dialog.enabled.isChecked())
+        self.assertEqual(dialog.buttons.button(QtWidgets.QDialogButtonBox.Apply).text(), "Use free-form labels")
+        dialog.table.item(0, 1).setText("forceps")
+        self.assertTrue(dialog.enabled.isChecked())
+        dialog.enabled.setChecked(False)
+        dialog.apply()
+        self.assertFalse(dialog.enabled.isChecked())
+        self.assertEqual(dialog.result_mapping, {3: "forceps"})
+
+    def test_category_file_read_error_preserves_names_mapping_and_annotations(self):
+        self.enable_mapping()
+        shape = self.shape()
+        self.window.loadShapes([shape])
+        original_names = list(self.window.category_list)
+        before = shape_to_annotation(shape)
+        path = self.root / "missing.txt"
+        with patch("annotator.QFileDialog.getOpenFileName", return_value=(str(path), "")), \
+                patch("annotator.QMessageBox.warning") as warning:
+            self.window.clickCategoryChoose()
+        warning.assert_called_once()
+        self.assertEqual(self.window.category_list, original_names)
+        self.assertEqual(self.window.labelDialog.mapping[3], "forceps")
+        self.assertEqual(shape_to_annotation(shape), before)
+
+    def test_duplicate_prefix_ids_are_editable_and_block_activation_until_fixed(self):
+        dialog = ClassMappingDialog(self.window, {}, False, categories=["3_cat", "3_dog"])
+        self.dialogs.append(dialog)
+        self.assertEqual(dialog.table.rowCount(), 2)
+        dialog.apply()
+        self.assertNotEqual(dialog.result(), QtWidgets.QDialog.Accepted)
+        self.assertIn("more than once", dialog.error.text())
+        dialog.table.item(1, 0).setText("4")
+        dialog.apply()
+        self.assertEqual(dialog.result_mapping, {3: "3_cat", 4: "3_dog"})
 
     def test_save_setup_file_does_not_apply_or_modify_current_mapping(self):
         dialog = ClassMappingDialog(self.window, {3: "cat"}, True)

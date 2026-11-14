@@ -10,8 +10,11 @@ python .\annotator.py --app_resolution 1000,1600 --model_type vit_b --keep_input
 Use disposable images and an explicit Save Directory for these checks.
 
 1. Click **Class mapping** in the toolbar. Add rows `0 / background`,
-   `3 / forceps`, and `125 / retina`. Enable **Use mapping to fill class names
-   from group IDs**, then **Apply**. Setup must also work before loading images.
+   `3 / forceps`, and `125 / retina`. Mapping should already be enabled for a
+   new setup. Click **Apply mapping**, including while the last cell is still
+   being edited. Check the toolbar shows **Class mapping ✓**. Setup must also
+   work before loading images. Repeat after restarting to check the reported
+   fresh-session failure without manually touching the checkbox.
 2. Draw a manual polygon. In the label dialog, type `3`: **forceps** must fill
    automatically and be read-only. Confirm, then check the name and ID in
    Polygon Labels. Repeat with ID `0` and select another class from the list.
@@ -33,9 +36,24 @@ Use disposable images and an explicit Save Directory for these checks.
    **Apply**. Check that IDs/names are restored. Loading a malformed JSON
    should explain the error and retain the current draft. Cancelling setup
    should leave the active mapping unchanged.
-8. Disable the mapping and Apply. New annotations and label edits must return
+8. Disable the mapping and click **Use free-form labels**. New annotations and label edits must return
    to the normal free-form dialog. The configured rows remain available in
-   setup for re-enabling. Category File should still load ordinary name lists.
+   setup for re-enabling.
+9. Restart and use **Category File** to open a text file containing `zebra` then
+   `forceps`, one name per line. Expect a mapping preview `0 / zebra`,
+   `1 / forceps` in file order. Change forceps to ID 3 and **Apply mapping**.
+   Try both a manual polygon and accepting a SAM proposal: selecting forceps
+   must fill ID 3. Repeat via **Class mapping → Load…** with the text file.
+10. Load `categories_retina.txt` through Category File. Check that proposed IDs
+    follow its numeric prefixes, such as `7 / 7_forceps`; the names retain
+    their prefixes. Edit any name/ID before applying. Try duplicate IDs: they
+    must be rejected with an explanation. Cancel an import and confirm the
+    previous active mapping still works and existing annotations are untouched.
+11. Restart, load a category file, and **Cancel** its mapping preview. The text
+    names should remain normal suggestions with mapping disabled. Then open
+    Class mapping, add `3 / forceps`, and Apply mapping. Both manual polygons
+    and SAM acceptance must now show the mapped choice rather than the text
+    suggestions. This reproduces the originally reported sequence.
 
 Mappings are optional, explicitly loaded, and apply throughout the current app
 session, including review mode. When changing datasets, load that dataset's

@@ -1,8 +1,27 @@
 """Portable, explicit dataset class definitions; never inferred from row order."""
 
 import json
+import re
 
 from utils.annotation_io import atomic_write_annotation
+
+
+def load_categories(filename):
+    """Read ordinary category names without sorting or rewriting them."""
+    with open(filename, encoding="utf-8-sig") as stream:
+        labels = [line.strip() for line in stream if line.strip()]
+    if not labels:
+        raise ValueError("The category file has no class names.")
+    return labels
+
+
+def propose_category_rows(labels):
+    """Suggest IDs only; the editable draft must be confirmed before use."""
+    matches = [re.match(r"^([0-9]+)[_\s:\-]+\S", label) for label in labels]
+    prefixed = bool(labels) and all(matches)
+    rows = [(int(match.group(1)) if prefixed else index, label)
+            for index, (label, match) in enumerate(zip(labels, matches))]
+    return rows, prefixed
 
 
 def mapping_from_rows(rows):

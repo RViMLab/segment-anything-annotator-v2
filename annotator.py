@@ -26,6 +26,7 @@ from canvas import Canvas
 import utils
 from utils.class_name_consistency import ClassNameChecker, ConsistencyReport, numeric_group_id
 from utils.class_mapping_dialog import ClassMappingDialog, MappedLabelDialog
+from utils.class_mapping import load_categories
 from utils.polygon_label_list import PolygonLabelListWidget
 from utils.download_model import download_model
 from utils.app_icon import configure_qt_application, configure_windows_app_id
@@ -1699,42 +1700,45 @@ class MainWindow(QMainWindow):
 
     def clickCategoryChoose(self):
         filename, _ = QFileDialog.getOpenFileName(self, 'choose target file','.')
+        if not filename:
+            return
         try:
-            with open(filename, 'r') as f:
-                data = f.readlines()
-                self.category_list = [i.strip() for i in data]
-                self.category_list.sort()
-                old_dialog = self.labelDialog
-                self.labelDialog = MappedLabelDialog(
-                    parent=self,
-                    mapping=self.class_mapping if self.class_mapping_enabled else None,
-                    labels=self.category_list,
-                    sort_labels=False,
-                    show_text_field=True,
-                    completion='contains',
-                    fit_to_content={'column': True, 'row': False},
-                )
-                old_dialog.deleteLater()
-        except Exception as e:
-            pass
+            categories = load_categories(filename)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, self.tr("Category file not loaded"), str(error))
+            return
+        self.category_list = categories
+        self._rebuildLabelDialog()
+        self._configureClassMapping(categories)
+
+    def _rebuildLabelDialog(self):
+        old_dialog = self.labelDialog
+        self.labelDialog = MappedLabelDialog(
+            parent=self, labels=self.category_list, sort_labels=False,
+            show_text_field=True, completion='contains',
+            fit_to_content={'column': True, 'row': False},
+            mapping=self.class_mapping if self.class_mapping_enabled else None,
+        )
+        old_dialog.deleteLater()
 
     def configureClassMapping(self):
-        dialog = ClassMappingDialog(self, self.class_mapping, self.class_mapping_enabled)
+        self._configureClassMapping()
+
+    def _configureClassMapping(self, categories=None):
+        dialog = ClassMappingDialog(self, self.class_mapping, self.class_mapping_enabled,
+                                    categories=categories)
         try:
             if dialog.exec_() != QtWidgets.QDialog.Accepted:
                 return
             self.class_mapping = dict(dialog.result_mapping)
             self.class_mapping_enabled = dialog.enabled.isChecked()
-            old_dialog = self.labelDialog
-            self.labelDialog = MappedLabelDialog(
-                parent=self, labels=self.category_list, sort_labels=False,
-                show_text_field=True, completion='contains',
-                fit_to_content={'column': True, 'row': False},
-                mapping=self.class_mapping if self.class_mapping_enabled else None,
-            )
-            old_dialog.deleteLater()
+            self._rebuildLabelDialog()
             self.actions.classMapping.setText(
                 self.tr("Class mapping ✓") if self.class_mapping_enabled else self.tr("Class mapping"))
+            self.actions.classMapping.setToolTip(
+                self.tr("Class mapping enabled: {} classes").format(len(self.class_mapping))
+                if self.class_mapping_enabled else self.tr("Class mapping disabled: free-form names and IDs"))
+            self.statusBar().showMessage(self.actions.classMapping.toolTip(), 8000)
         finally:
             dialog.deleteLater()
 

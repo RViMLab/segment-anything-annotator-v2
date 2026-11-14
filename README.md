@@ -90,20 +90,54 @@ The `--app_resolution` value is `height,width`.
 ## Class names from group IDs
 
 Use **Class mapping** in the toolbar to define group IDs and class names for
-your dataset, for example `3 → forceps`. Enable the mapping and click **Apply**.
+your dataset, for example `3 → forceps`. New setups enable mapping by default;
+enter the rows and click **Apply mapping**. Editing a disabled setup also
+re-enables the mapping. To return to free-form labels, uncheck **Use mapping**
+and click **Use free-form labels**.
 When creating a polygon, accepting SAM results, or editing a label, enter an ID
 or select a class: its name is filled automatically. Undefined IDs cannot be
 confirmed. ID `0` is supported.
 
-Use **Save…** / **Load…** in setup to reuse a mapping JSON file. Load the
-appropriate mapping when restarting the app or changing datasets; mappings
-apply throughout the current session, including review mode. Disable the
-mapping to restore free-form names and IDs. Ordinary **Category File** text
-files continue to provide name suggestions when mapping is disabled.
+Click **Category File** to load a text file with one class name per line. The
+app opens an editable mapping preview before using the proposed IDs:
+
+- If every name has a numeric prefix, such as `7_forceps` or `1_retina`, use
+  those numbers as proposed IDs. Names are kept exactly as written; edit the
+  name in the preview if you want to remove its prefix.
+- Otherwise propose IDs in file order, starting at `0`. Names are not sorted;
+  blank lines are skipped. These are suggestions, not inferred dataset IDs.
+- Check and edit the IDs before **Apply mapping**, especially for an existing
+  dataset. Duplicate IDs and empty names must be corrected before applying.
+- Cancel keeps the active mapping unchanged. The loaded text names are still
+  available as suggestions when mapping is disabled. **Class mapping → Load…**
+  also accepts category text files and mapping JSON files.
+
+### Keep names and IDs consistent throughout a dataset
+
+1. At the start, load the dataset's category text file and review its proposed
+   mapping. For an existing dataset, match the IDs already used in its
+   annotations/downstream tasks; for a new dataset, agree on IDs before drawing.
+2. **Save…** the reviewed mapping as a separate file such as `classes.json`,
+   then **Apply mapping** to activate it. Saving exports the setup; applying
+   activates it. The toolbar shows **Class mapping ✓** when mapping is active.
+3. Use the mapped class list or enter the ID for each manual polygon, SAM
+   acceptance, or label edit. Undefined IDs cannot be confirmed. Keep one
+   approved name per ID and avoid changing the mapping midway through a dataset.
+4. When restarting or resuming on another device, load the same `classes.json`
+   through **Class mapping → Load…**, review it, and **Apply mapping**. Mappings
+   are not restored automatically on startup. Reusing the JSON preserves the
+   reviewed IDs even if the category text file is reordered later.
+5. When changing datasets, load its mapping or explicitly disable mapping.
+   Mappings apply throughout the current app session, including review mode;
+   there is no universal meaning for a particular numeric ID. Keep the mapping
+   JSON with the dataset's supporting files and share it with collaborators.
 
 Loading a mapping does not relabel existing annotations. Their names change
 only when you confirm a label edit. Existing class-name consistency warnings
-still check imported/older annotations. Mapping JSON files use this format:
+still check imported/older annotations: choose **Review names** to investigate
+conflicts rather than repeatedly saving inconsistent names. If you deliberately
+change a class definition, review existing annotations too; changing the setup
+does not migrate them. Mapping JSON files use this format:
 
 ```json
 {"version": 1, "classes": [{"group_id": 0, "label": "background"}, {"group_id": 3, "label": "forceps"}]}
@@ -124,8 +158,10 @@ memory but use larger model backbones.
 
 ## Image annotation workflow
 
-1. Click **Category File** and select a text file containing one category per
-   line, such as `categories.txt`.
+1. For a new dataset, click **Category File**, select a text file containing
+   one category per line, and review the proposed IDs before **Apply mapping**.
+   For a resumed dataset, load its approved `classes.json` through
+   **Class mapping → Load…** instead. See the consistency practices above.
 2. Click **Image Directory** and select a folder containing `.jpg` or `.png`
    images.
 3. Click **Save Directory** and select the output folder.

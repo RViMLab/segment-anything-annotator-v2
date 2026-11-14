@@ -3,12 +3,14 @@
 from qtpy import QtCore, QtWidgets
 from labelme.widgets import LabelDialog
 
-from utils.class_mapping import load_mapping, mapping_from_rows, save_mapping
+from utils.class_mapping import (
+    load_categories, load_mapping, mapping_from_rows, propose_category_rows, save_mapping,
+)
 from utils.class_name_consistency import numeric_group_id
 
 
 class ClassMappingDialog(QtWidgets.QDialog):
-    def __init__(self, parent, mapping, enabled):
+    def __init__(self, parent, mapping, enabled, categories=None):
         super().__init__(parent)
         self.setWindowTitle("Class mapping")
         self.resize(480, 420)
@@ -21,13 +23,17 @@ class ClassMappingDialog(QtWidgets.QDialog):
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
         self.enabled = QtWidgets.QCheckBox("Use mapping to fill class names from group IDs")
-        self.enabled.setChecked(enabled)
+        # A new setup should do what Apply promises without a second opt-in.
+        self.enabled.setChecked(enabled or not mapping)
         layout.addWidget(self.enabled)
         self.table = QtWidgets.QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["Group ID", "Class name"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         layout.addWidget(self.table)
+        self.import_notice = QtWidgets.QLabel()
+        self.import_notice.setWordWrap(True)
+        layout.addWidget(self.import_notice)
         buttons = QtWidgets.QHBoxLayout()
         for caption, handler in [("Add row", self.addRow), ("Remove selected", self.removeRows),
                                  ("Load…", self.loadFile), ("Save…", self.saveFile)]:
@@ -41,15 +47,39 @@ class ClassMappingDialog(QtWidgets.QDialog):
         self.buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Apply | QtWidgets.QDialogButtonBox.Cancel)
         self.buttons.button(QtWidgets.QDialogButtonBox.Apply).clicked.connect(self.apply)
+        self.enabled.toggled.connect(self.updateApplyText)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
         self.result_mapping = dict(mapping)
         self.setRows(mapping)
+        self.table.itemChanged.connect(self.enableEditedMapping)
+        self.updateApplyText()
+        if categories is not None:
+            self.importCategories(categories)
+
+    def updateApplyText(self):
+        self.buttons.button(QtWidgets.QDialogButtonBox.Apply).setText(
+            "Apply mapping" if self.enabled.isChecked() else "Use free-form labels")
+
+    def enableEditedMapping(self, item):
+        self.enabled.setChecked(True)
+
+    def importCategories(self, labels):
+        rows, prefixed = propose_category_rows(labels)
+        self.setRows(rows)
+        self.enabled.setChecked(True)
+        policy = ("Proposed IDs use the numeric prefixes; names are kept as written."
+                  if prefixed else "Proposed IDs follow file order, starting at 0.")
+        self.import_notice.setText(policy + "\nCheck or edit every ID before clicking Apply mapping. "
+                                   "Cancel keeps the current mapping unchanged.")
+        self.error.clear()
 
     def setRows(self, mapping):
+        blocker = QtCore.QSignalBlocker(self.table)
         self.table.setRowCount(0)
-        for group, label in mapping.items():
+        for group, label in (mapping.items() if isinstance(mapping, dict) else mapping):
             self.addRow(group, label)
+        del blocker
 
     def addRow(self, group=None, label=""):
         # QPushButton.clicked supplies a bool, not a group ID.
@@ -71,6 +101,10 @@ class ClassMappingDialog(QtWidgets.QDialog):
         ])
 
     def apply(self):
+        # Commit a cell still being edited before reading its backing item.
+        focused = QtWidgets.QApplication.focusWidget()
+        if focused is not None and self.table.isAncestorOf(focused):
+            focused.clearFocus()
         try:
             # Disabling remains possible even with an unfinished draft row.
             if self.enabled.isChecked():
@@ -86,16 +120,22 @@ class ClassMappingDialog(QtWidgets.QDialog):
         self.accept()
 
     def loadFile(self):
-        filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load class mapping", "", "Class mapping (*.json)")
+        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Load class mapping or category file", "",
+            "Mapping or categories (*.json *.txt);;Class mapping (*.json);;Category names (*.txt)")
         if not filename:
             return
         try:
+            if filename.lower().endswith(".txt"):
+                self.importCategories(load_categories(filename))
+                return
             mapping = load_mapping(filename)
         except (OSError, ValueError) as error:
             self.error.setText(str(error))
             return
         self.setRows(mapping)
         self.enabled.setChecked(True)
+        self.import_notice.setText("Check the group IDs and names, then click Apply mapping.")
         self.error.clear()
 
     def saveFile(self):
