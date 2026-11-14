@@ -254,7 +254,10 @@ The JSON format stores independently filled polygons. Holes from SAM, Merge,
 or Subtract are preserved by splitting the result into ordinary filled polygon
 parts whose combined mask leaves the holes empty. Parts share the class name,
 group ID, flags, and metadata; they remain separate entries in Polygon Labels.
-There is no special hole record, new JSON schema, or change to class-ID meaning.
+For example, a donut-shaped object is saved as **two or more polygon
+annotations** around the empty centre. The number of parts depends on its
+geometry; they collectively represent the holed object. There is no special
+hole record, new JSON schema, or change to class-ID meaning.
 
 SAM asks for confirmation before accepting a mask with holes. Conversion of
 the selected preview must preserve every pixel in both OpenCV and PIL masks.
@@ -272,8 +275,9 @@ Hiding its checkbox affects the view only; it does not remove it from saved
 JSON/masks. Keeping a same-class cutter would fill the hole in that class's
 combined mask; keeping a different-class cutter assigns that area to its class.
 
-Ctrl-click each part in **Polygon Labels**, then drag a selected part on the
-image to move the whole selection together. Editing one part moves/changes only
+To move a donut-shaped object, **hold Ctrl and click each of its parts in
+Polygon Labels**, then drag any selected part on the image. All selected parts,
+and therefore the hole, move together. Editing one part moves/changes only
 that part, and partition boundaries can appear as seams. Keep all parts with
 the same class identity; downstream consumers should fill/union every polygon
 of that class rather than treat each entry as a separate object instance.
