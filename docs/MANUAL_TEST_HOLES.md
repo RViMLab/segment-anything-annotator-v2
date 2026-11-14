@@ -25,7 +25,8 @@ clinical data untouched. No old JSON is automatically converted to a ring.
    cutter entry if it is only a temporary tool. A hidden checkbox only hides
    it on screen; it would still be saved. Delete/hide any unrelated overlapping
    annotations as appropriate to distinguish the class mask you are checking.
-5. Check the hole is empty. Select all ring parts together and move them: the
+5. Check the hole is empty. Ctrl-click each ring part in Polygon Labels, then
+   drag a selected part on the image to move the selection: the
    hole should move with the ring. Undo movement with **Ctrl+U**. Undo deleting
    the cutter, then undo subtraction: the two original rectangles should return.
 6. Repeat subtraction and delete the cutter, then Save and revisit/reopen the
@@ -49,8 +50,29 @@ clinical data untouched. No old JSON is automatically converted to a ring.
    The automated tests exercise hole conversion through all three prompt paths
    with deterministic masks; actual SAM prediction quality is independent.
 5. Verify multiple holes and disconnected foreground if available. Unsupported
-   very thin/complex masks must explain why conversion is unavailable; they
+   very thin/complex masks must explain why conversion is unavailable **on Accept**; they
    must never be silently filled/dropped. Other valid proposals remain usable.
+
+## Point-prompt regression and model readiness
+
+1. Start a fresh app without clicking Load SAM. Try Point, Box, and Circle
+   Prompt, and their P/B/C shortcuts. Expect a clear Load SAM warning; no
+   inactive prompt mode should be entered. An unfinished manual polygon must
+   remain intact. Manual polygons and construction shapes still work.
+2. Load SAM, choose Point Prompt, and make one positive click. Nonempty
+   predictions should appear immediately, even if their geometry is too complex
+   to save. Add positive/negative clicks: no polygon-conversion popup should
+   interrupt each click. Try all three proposal buttons/digits.
+3. With **Point prompts: keep clicked regions** enabled below Invert colours,
+   check that detached speckles disappear from the preview. Disable it to view
+   the complete SAM prediction, then re-enable it. Add a positive click inside
+   each disconnected region you want to retain. Negative-only prompts do not
+   apply this region filter. Box/circle predictions must be unaffected.
+4. Accept a suitable preview. Polygon conversion must match the displayed
+   mask, including holes. Unsupported conversion should explain the problem
+   only at this step and retain prompts/proposals for further refinement.
+5. Reject, change mode, and navigate frames. The raster overlay and old proposal
+   state must clear. Recheck Save/reopen and Ctrl+U after a successful acceptance.
 
 ## Compatibility
 

@@ -1077,7 +1077,10 @@ class Canvas(QtWidgets.QWidget):
             drawing_shape.fill = True
             drawing_shape.paint(p, show_label=self.show_labels)
         
-        if len(self.app.sam_mask) > 0:
+        overlay = getattr(self.app, "_sam_overlay", None)
+        if overlay is not None:
+            p.drawPixmap(0, 0, overlay)
+        elif len(self.app.sam_mask) > 0:
             for tmp_mask in self.app.sam_mask:
                 drawing_shape = tmp_mask.copy()
                 drawing_shape.fill = True

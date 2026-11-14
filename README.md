@@ -149,6 +149,11 @@ Click **Load SAM** to download the selected checkpoint automatically. The
 checkpoint is saved in the repository root as `vit_b.pth`, `vit_l.pth`, or
 `vit_h.pth`.
 
+Load the model before choosing Point, Box, or Circle Prompt. If you choose one
+of these tools first (including P/B/C), the app asks you to click **Load SAM**
+and keeps your current mode and unfinished drawing unchanged. Manual polygons
+and construction shapes do not require SAM.
+
 You can instead download a checkpoint manually from the
 [official SAM repository](https://github.com/facebookresearch/segment-anything#model-checkpoints)
 and place it in the repository root using the corresponding filename.
@@ -188,6 +193,24 @@ are no longer needed. Review mode uses its configured output directory.
 - **Box Prompt:** draw a bounding box around the object.
 - **Circle Prompt:** draw a circular prompt around the object.
 - **Manual Polygons:** click along the object boundary to create a polygon.
+
+Point predictions appear as raster previews while you add clicks; polygon
+conversion runs only when you click **Accept**, so intermediate thin or complex
+predictions do not interrupt each click with conversion dialogs. SAM predictions
+are suggestions: a single point may be ambiguous, and a negative point does not
+guarantee the exact cut-out that a geometric subtraction provides.
+
+**Point prompts: keep clicked regions**, below Invert colours, is enabled by
+default. It previews only connected foreground regions containing a positive
+click, excluding disconnected speckles while preserving holes. Add a positive
+click in each desired disconnected region, or turn the option off to preview
+all predicted regions. Toggling refreshes existing proposals without rerunning
+SAM; previews show the mask that will be converted on acceptance. Negative-only
+prompts and box/circle prompts retain all predicted regions. The status bar
+reports filtered pixels. Empty predictions can be refined without a popup.
+
+The controls below apply to manual drawing and polygon editing:
+
 - **Undo last point (U):** remove the newest vertex from an unfinished manual
   polygon. The control becomes available after the first vertex and disables
   after completion, cancellation, or changing frames/modes. It does not remove
@@ -233,12 +256,13 @@ parts whose combined mask leaves the holes empty. Parts share the class name,
 group ID, flags, and metadata; they remain separate entries in Polygon Labels.
 There is no special hole record, new JSON schema, or change to class-ID meaning.
 
-SAM asks for confirmation before accepting a mask with holes. Each proposal's
-conversion must preserve every pixel in both OpenCV and PIL masks. Small
-disconnected regions are retained. Proposals/operations that cannot be
-represented exactly, or require too many parts, are blocked with a reason
-rather than silently filling holes or dropping pixels. Other valid proposals
-remain selectable. No automatic repair of previously saved annotations occurs.
+SAM asks for confirmation before accepting a mask with holes. Conversion of
+the selected preview must preserve every pixel in both OpenCV and PIL masks.
+Small regions are retained unless explicitly excluded by the visible point-region
+filter. If a selected mask cannot be represented exactly, or requires too many
+parts, **Accept** explains why and leaves its preview/prompts available for
+refinement. Other proposals remain selectable. Existing annotations are never
+silently changed or automatically repaired.
 
 To create a donut with **Subtract**, select the small inner cutter first,
 activate Subtract, then select the large outer target and confirm. The target
@@ -248,7 +272,8 @@ Hiding its checkbox affects the view only; it does not remove it from saved
 JSON/masks. Keeping a same-class cutter would fill the hole in that class's
 combined mask; keeping a different-class cutter assigns that area to its class.
 
-Select all parts to move the whole object. Editing one part moves/changes only
+Ctrl-click each part in **Polygon Labels**, then drag a selected part on the
+image to move the whole selection together. Editing one part moves/changes only
 that part, and partition boundaries can appear as seams. Keep all parts with
 the same class identity; downstream consumers should fill/union every polygon
 of that class rather than treat each entry as a separate object instance.
@@ -256,6 +281,13 @@ Ordinary Labelme-style filled-polygon rasterization needs no special hole rule.
 Save/reopen and Ctrl+U work with the parts. A ring cannot become one ordinary
 filled polygon simply by merging its parts; the hole-preserving result still
 uses multiple parts.
+
+Each saved polygon has one point list, so it cannot describe both an outer
+boundary and a separate inner boundary in one simple polygon. A compound
+editable object would need an additional representation and object-linking
+support; class/group IDs cannot provide that link because several independent
+objects can share the same class. This feature preserves holes using compatible
+parts rather than changing what existing JSON readers understand.
 
 Reduce Points is blocked if it would remove a region, change holes, or leave
 fewer than three vertices. Other pixel changes require explicit confirmation.

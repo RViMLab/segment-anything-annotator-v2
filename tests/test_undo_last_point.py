@@ -86,6 +86,11 @@ class UndoLastPointTests(unittest.TestCase):
         QtTest.QTest.keyClick(self.window.canvas, QtCore.Qt.Key_Escape)
         self.assertFalse(self.window.actions.undoLastPoint.isEnabled())
         self.begin_polygon()
+        with patch("annotator.QMessageBox.warning"):
+            # The unloaded-model guard preserves the unfinished sketch.
+            self.window.toggleDrawMode(False, createMode="point")
+        self.assertIsNotNone(self.window.canvas.current)
+        self.window.predictor = object()
         self.window.toggleDrawMode(False, createMode="point")
         self.assertFalse(self.window.actions.undoLastPoint.isEnabled())
         self.assertIsNone(self.window.canvas.current)
@@ -111,6 +116,9 @@ class UndoLastPointTests(unittest.TestCase):
 
     def test_sam_box_and_circle_prompt_signals_do_not_enable_point_undo(self):
         for mode in ("point", "rectangle", "circle"):
+            # These tests exercise point-undo state, not model loading.
+            self.window.predictor = object()
             self.window.toggleDrawMode(False, createMode=mode)
+            self.window.predictor = None
             self.click_image(30, 30)
             self.assertFalse(self.window.actions.undoLastPoint.isEnabled(), mode)
