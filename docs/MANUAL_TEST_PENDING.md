@@ -1,5 +1,9 @@
 # Manual checks before merging the pending PRs
 
+This is the historical checklist for PRs #52/#53/#54/#56. Hole subtraction
+was blocked at that time; the newer hole-preserving workflow and current
+checks are in [MANUAL_TEST_HOLES.md](MANUAL_TEST_HOLES.md).
+
 Close the annotator **before every branch switch**. Use your normal activated
 Python environment in the repository folder. No SAM model loading/inference is
 needed for these checks. The scripts below create synthetic data, not clinical

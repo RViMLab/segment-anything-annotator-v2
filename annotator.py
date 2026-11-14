@@ -34,7 +34,7 @@ from utils.annotation_io import atomic_write_annotation
 from utils.annotation_document import shape_to_annotation
 from utils.proposal_button import ProposalButton
 from utils.geometry_operations import (
-    GeometrySafetyError, describe_change, exact_mask_polygons, polygon_mask,
+    GeometrySafetyError, describe_change, exact_mask_polygons, mask_topology, polygon_mask,
 )
 
 from labelme.widgets import ToolBar, UniqueLabelQListWidget, LabelListWidgetItem, ZoomWidget
@@ -1553,6 +1553,8 @@ class MainWindow(QMainWindow):
 
     def selectSamProposal(self, index):
         if 0 <= index < min(3, len(self.sam_mask_proposal)):
+            if not self.sam_mask_proposal[index]:
+                return
             self.sam_mask = self.sam_mask_proposal[index]
             self.canvas.setHiding()
             self.canvas.update()
@@ -1811,6 +1813,7 @@ class MainWindow(QMainWindow):
             self.sam_mask_proposal = []
         for index, button in enumerate(self.button_proposal_list, start=1):
             button.setText(str(index))
+            button.setToolTip(f"Select SAM proposal {index}")
             button.setIcon(QIcon())
             button._proposal_image_size = QSize()
             button.setEnabled(False)
@@ -1884,35 +1887,7 @@ class MainWindow(QMainWindow):
         )
         masks = self.transform_output(masks.astype(np.uint8), (rh,rw))
 
-        target_idx = np.argmax(iou_prediction)
-        self.show_proposals(masks, 0)
-        self.sam_mask_proposal = []
-        for msk_idx in range(masks.shape[0]):
-            mask = masks[msk_idx].astype(np.uint8)
-
-            points_list = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
-            shape_type = 'polygon'
-            tmp_sam_mask = []
-            for points in points_list:
-                area = cv2.contourArea(points)
-                if area < 100 and len(points_list) > 1:
-                    continue
-                pointsx = points[:,0,0]
-                pointsy = points[:,0,1]
-
-                shape = Shape(
-                    label='Object',
-                    shape_type=shape_type,
-                    group_id=self.getMaxId() + 1,
-                )
-                for point_index in range(pointsx.shape[0]):
-                    shape.addPoint(QtCore.QPointF(pointsx[point_index], pointsy[point_index]))
-                shape.close()
-                #self.addLabel(shape)
-                tmp_sam_mask.append(shape)
-            if msk_idx == target_idx:
-                self.sam_mask = tmp_sam_mask
-            self.sam_mask_proposal.append(tmp_sam_mask)
+        self._buildSamProposals(masks, iou_prediction)
 
 
     def clickManualSegCircle(self):
@@ -1939,34 +1914,7 @@ class MainWindow(QMainWindow):
         )
         masks = self.transform_output(masks.astype(np.uint8), (rh,rw))
 
-        target_idx = np.argmax(iou_prediction)
-        self.show_proposals(masks, 0)
-        self.sam_mask_proposal = []
-        for msk_idx in range(masks.shape[0]):
-            mask = masks[msk_idx].astype(np.uint8)
-
-            points_list = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
-            shape_type = 'polygon'
-            tmp_sam_mask = []
-            for points in points_list:
-                area = cv2.contourArea(points)
-                if area < 100 and len(points_list) > 1:
-                    continue
-                pointsx = points[:,0,0]
-                pointsy = points[:,0,1]
-
-                shape = Shape(
-                    label='Object',
-                    shape_type=shape_type,
-                    group_id=self.getMaxId() + 1,
-                )
-                for point_index in range(pointsx.shape[0]):
-                    shape.addPoint(QtCore.QPointF(pointsx[point_index], pointsy[point_index]))
-                shape.close()
-                tmp_sam_mask.append(shape)
-            if msk_idx == target_idx:
-                self.sam_mask = tmp_sam_mask
-            self.sam_mask_proposal.append(tmp_sam_mask)
+        self._buildSamProposals(masks, iou_prediction)
 
 
     def clickManualSegBox(self):
@@ -2007,39 +1955,59 @@ class MainWindow(QMainWindow):
         )
         masks = self.transform_output(masks.astype(np.uint8), (rh,rw))
         
-        target_idx = np.argmax(iou_prediction)
-        self.show_proposals(masks,0)
-        self.sam_mask_proposal = []
-        
-        for msk_idx in range(masks.shape[0]):
-            mask = masks[msk_idx].astype(np.uint8)
-            
-            points_list = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
-            shape_type = 'polygon'
-            tmp_sam_mask = []
-            for points in points_list:
-                area = cv2.contourArea(points)
-                if area < 100 and len(points_list) > 1:
-                    continue
-                pointsx = points[:,0,0]
-                pointsy = points[:,0,1]
+        self._buildSamProposals(masks, iou_prediction)
 
-                shape = Shape(
-                    label='Object',
-                    shape_type=shape_type,
-                    group_id=self.getMaxId() + 1,
-                )
-                for point_index in range(pointsx.shape[0]):
-                    shape.addPoint(QtCore.QPointF(pointsx[point_index], pointsy[point_index]))
+
+    def _buildSamProposals(self, masks, scores):
+        self.show_proposals(masks, 0)
+        self.sam_mask = []
+        self.sam_mask_proposal = []
+        failures = []
+        for index, mask in enumerate(masks):
+            try:
+                polygons = exact_mask_polygons(mask)
+                if not polygons:
+                    raise GeometrySafetyError("The proposal contains no foreground pixels.")
+            except GeometrySafetyError as error:
+                self.sam_mask_proposal.append([])
+                failures.append(f"Proposal {index + 1}: {error}")
+                if index < len(self.button_proposal_list):
+                    button = self.button_proposal_list[index]
+                    button.setEnabled(False)
+                    button.setToolTip(f"Proposal {index + 1} unavailable: {error}")
+                continue
+            shapes = []
+            for points in polygons:
+                shape = Shape(label='Object', shape_type='polygon', group_id=self.getMaxId() + 1)
+                shape.points = [QtCore.QPointF(float(x), float(y)) for x, y in points]
                 shape.close()
-                #self.addLabel(shape)
-                tmp_sam_mask.append(shape)
-            if msk_idx == target_idx:
-                self.sam_mask = tmp_sam_mask
-            self.sam_mask_proposal.append(tmp_sam_mask)
-            
+                shapes.append(shape)
+            self.sam_mask_proposal.append(shapes)
+        valid = [index for index, shapes in enumerate(self.sam_mask_proposal[:3]) if shapes]
+        if valid:
+            self.sam_mask = self.sam_mask_proposal[max(valid, key=lambda index: scores[index])]
+            if failures:
+                self.statusBar().showMessage("Some proposals cannot be saved exactly; see their tooltips.", 10000)
+        else:
+            self.sam_mask_proposal = []
+            self._geometryWarning("No SAM proposal can be preserved as editable polygons.\n" + "\n".join(failures))
+
     def addSamMask(self):
+        if not self.sam_mask:
+            return
         if len(self.sam_mask) > 0:
+            combined = np.zeros((int(self.raw_h), int(self.raw_w)), dtype=np.uint8)
+            for shape in self.sam_mask:
+                combined |= self._shapeMask(shape)
+            holes = mask_topology(combined)[1]
+            if holes and QMessageBox.question(
+                self, self.tr("Preserve holes"),
+                f"This proposal contains {holes} {'hole' if holes == 1 else 'holes'}. To preserve them, save it as "
+                f"{len(self.sam_mask)} filled polygon parts with the same class name and group ID.\n\n"
+                "The parts remain separate entries; select all parts to move the whole object.\n\n"
+                "Accept these parts?", QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel,
+            ) != QMessageBox.Yes:
+                return
             label = 'Object'
             group_id = None if self.class_mapping_enabled else self.getMaxId() + 1
             xx = self.labelDialog.popUp(
@@ -2052,25 +2020,27 @@ class MainWindow(QMainWindow):
             else:
                 label, flags, group_id = xx
                 description = ""
-            if label is None and self.class_mapping_enabled:
+            if label is None:
                 return  # Keep proposals available after cancelling the class choice.
-            if label == None:
-                label = 'Object'
             if type(group_id) != int:
                 group_id=self.getMaxId() + 1
+            current = [item.shape() for item in self.labelList]
+            backups = self.canvas.shapesBackups
+            if not backups or [shape_to_annotation(s) for s in backups[-1]] != [
+                    shape_to_annotation(s) for s in current]:
+                self.canvas.storeShapes()
             for sam_mask in self.sam_mask:
                 sam_mask.label = label
                 sam_mask.group_id = group_id
-                if self.class_mapping_enabled:
-                    sam_mask.flags = dict(flags)
-                    sam_mask.other_data["description"] = description
+                sam_mask.flags = dict(flags or {})
+                sam_mask.other_data["description"] = description
                 self.addLabel(sam_mask)
         self.canvas.cancelDrawing()
         self.sam_mask = []
         self.sam_mask_proposal = []
         self.show_proposals()
         self.canvas.loadShapes([item.shape() for item in self.labelList])
-        self.actions.save.setEnabled(True)
+        self.setDirty()
         self.actions.editMode.setEnabled(True)
 
 
@@ -2512,10 +2482,10 @@ class MainWindow(QMainWindow):
                             str(error) + details + "\n\nAnnotations were not changed.")
         return False
 
-    def _confirmGeometryChange(self, operation, report, before_vertices, after_vertices):
+    def _confirmGeometryChange(self, operation, report, before_vertices, after_vertices, notice=""):
         return QMessageBox.question(
             self, self.tr(operation),
-            report.describe() + f"\nVertices: {before_vertices} ? {after_vertices}."
+            report.describe() + f"\nVertices: {before_vertices} ? {after_vertices}." + notice +
             "\n\nApply this change?",
             QMessageBox.Yes | QMessageBox.Cancel,
             QMessageBox.Cancel,
@@ -2618,16 +2588,23 @@ class MainWindow(QMainWindow):
             shape.selected = False
             created.append(shape)
         removed = [source_shape, target_shape] if merge else [target_shape]
+        notice = ""
+        if report.after_holes:
+            notice = (f"\n\nHoles will be preserved using {len(created)} filled polygon parts "
+                      "with the same class name and group ID. Select all parts to move the whole object.")
+            if not merge:
+                notice += ("\nThe cutter remains a separate annotation. Delete it afterwards "
+                           "if it should not appear in the saved mask.")
         if confirm_drop:
             confirmed = QMessageBox.question(
                 self, self.tr("Merge annotations"),
-                self.tr("Do you want to merge the 2 annotations?") + "\n\n" + report.describe(),
+                self.tr("Do you want to merge the 2 annotations?") + "\n\n" + report.describe() + notice,
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
             ) == QMessageBox.Yes
         else:
             confirmed = self._confirmGeometryChange(
                 "Merge polygons" if merge else "Subtract polygons", report,
-                sum(len(s.points) for s in removed), sum(len(s.points) for s in created))
+                sum(len(s.points) for s in removed), sum(len(s.points) for s in created), notice)
         if not confirmed:
             return False
         replacements = {s: [] for s in removed}

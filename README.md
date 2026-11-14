@@ -227,11 +227,38 @@ Merge, Subtract, and Reduce Points preview native-resolution pixel/region/hole
 counts and vertex counts before asking whether to apply a change. Cancel leaves
 the annotations unchanged. Undo restores geometry and metadata after applying.
 
-The current JSON format stores independently filled polygons with no hole
-convention. Operations that create holes or cannot reproduce small/thin regions
-exactly as polygons are blocked rather than filling or dropping them. Reduction
-is blocked if it would remove a region, change holes, or leave fewer than three
-vertices. Other pixel changes from reduction require explicit confirmation.
+The JSON format stores independently filled polygons. Holes from SAM, Merge,
+or Subtract are preserved by splitting the result into ordinary filled polygon
+parts whose combined mask leaves the holes empty. Parts share the class name,
+group ID, flags, and metadata; they remain separate entries in Polygon Labels.
+There is no special hole record, new JSON schema, or change to class-ID meaning.
+
+SAM asks for confirmation before accepting a mask with holes. Each proposal's
+conversion must preserve every pixel in both OpenCV and PIL masks. Small
+disconnected regions are retained. Proposals/operations that cannot be
+represented exactly, or require too many parts, are blocked with a reason
+rather than silently filling holes or dropping pixels. Other valid proposals
+remain selectable. No automatic repair of previously saved annotations occurs.
+
+To create a donut with **Subtract**, select the small inner cutter first,
+activate Subtract, then select the large outer target and confirm. The target
+becomes polygon parts surrounding the hole. **The cutter remains a separate
+annotation:** delete it afterwards if it was only a temporary cutting tool.
+Hiding its checkbox affects the view only; it does not remove it from saved
+JSON/masks. Keeping a same-class cutter would fill the hole in that class's
+combined mask; keeping a different-class cutter assigns that area to its class.
+
+Select all parts to move the whole object. Editing one part moves/changes only
+that part, and partition boundaries can appear as seams. Keep all parts with
+the same class identity; downstream consumers should fill/union every polygon
+of that class rather than treat each entry as a separate object instance.
+Ordinary Labelme-style filled-polygon rasterization needs no special hole rule.
+Save/reopen and Ctrl+U work with the parts. A ring cannot become one ordinary
+filled polygon simply by merging its parts; the hole-preserving result still
+uses multiple parts.
+
+Reduce Points is blocked if it would remove a region, change holes, or leave
+fewer than three vertices. Other pixel changes require explicit confirmation.
 
 Merge requires matching labels, object IDs, flags, descriptions, and other
 shape metadata. It also blocks merging across intervening overlapping shapes

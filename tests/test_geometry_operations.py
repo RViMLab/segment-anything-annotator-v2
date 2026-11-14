@@ -11,21 +11,68 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from annotator import MainWindow
+import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from qtpy import QtCore, QtWidgets
 from shape import Shape
+from review.comparison import _mask, compare_class_masks
+from utils.annotation_document import shape_to_annotation
 from utils.geometry_operations import (
     GeometrySafetyError, describe_change, exact_mask_polygons, polygon_mask,
 )
 
 
 class MaskSafetyTests(unittest.TestCase):
-    def test_holes_are_rejected_instead_of_filled(self):
+    def test_holes_are_decomposed_without_filling_them(self):
         mask = np.zeros((32, 32), dtype=np.uint8)
         mask[2:25, 2:25] = 1
         mask[8:16, 8:16] = 0
-        with self.assertRaisesRegex(GeometrySafetyError, "holes"):
+        self.assert_exact_parts(mask)
+
+    def assert_exact_parts(self, mask):
+        polygons = exact_mask_polygons(mask)
+        cv_mask = np.zeros_like(mask)
+        pil_mask = Image.new("L", (mask.shape[1], mask.shape[0]))
+        draw = ImageDraw.Draw(pil_mask)
+        for polygon in polygons:
+            part = polygon_mask(polygon, mask.shape)
+            self.assertEqual(describe_change(part, part).after_holes, 0)
+            cv_mask |= part
+            draw.polygon([tuple(point) for point in polygon], fill=1)
+        np.testing.assert_array_equal(mask, cv_mask)
+        np.testing.assert_array_equal(mask, np.array(pil_mask))
+        return polygons
+
+    def test_circular_hole_nested_island_multiple_holes_and_disconnected_region(self):
+        mask = np.zeros((120, 160), dtype=np.uint8)
+        cv2.circle(mask, (60, 60), 48, 1, -1)
+        cv2.circle(mask, (60, 60), 18, 0, -1)
+        mask[57:63, 57:63] = 1
+        mask[35:43, 40:45] = 0
+        mask[20:27, 135:142] = 1
+        self.assert_exact_parts(mask)
+
+    def test_border_touching_object_tiny_hole_and_small_disconnected_region(self):
+        mask = np.ones((35, 50), dtype=np.uint8)
+        mask[4, 4] = 0
+        mask[12:20, 23:32] = 0
+        mask[:, 40:] = 0
+        mask[30:32, 46:48] = 1
+        self.assert_exact_parts(mask)
+
+    def test_sloped_outline_and_multiple_hole_sizes(self):
+        for radius in (1, 3, 10, 22):
+            with self.subTest(radius=radius):
+                mask = np.zeros((120, 160), dtype=np.uint8)
+                cv2.fillPoly(mask, [np.array([[3, 3], [140, 23], [110, 112], [12, 90]])], 1)
+                cv2.circle(mask, (70, 60), radius, 0, -1)
+                self.assert_exact_parts(mask)
+
+    def test_overly_complex_hole_decomposition_is_bounded_and_rejected_safely(self):
+        mask = np.ones((100, 100), dtype=np.uint8)
+        mask[2:98:3, 2:98:3] = 0
+        with self.assertRaises(GeometrySafetyError):
             exact_mask_polygons(mask)
 
     def test_disconnected_regions_roundtrip_without_area_filtering(self):
@@ -103,11 +150,44 @@ class GeometryOperationGuiTests(unittest.TestCase):
         target = self.rectangle(2, 2, 30, 30)
         source = self.rectangle(10, 10, 20, 20)
         before = list(self.window.canvas.shapes)
+        self.question.return_value = QtWidgets.QMessageBox.Cancel
         self.assertFalse(self.window._perform_subtract(source, target))
         self.assertEqual(self.window.canvas.shapes, before)
         self.assertFalse(self.window.actions.save.isEnabled())
-        self.warning.assert_called_once()
-        self.assertIn("Holes: 0 → 1", self.warning.call_args.args[2])
+        self.warning.assert_not_called()
+        self.assertIn("Holes: 0 → 1", self.question.call_args.args[2])
+        self.assertIn("cutter remains", self.question.call_args.args[2])
+
+    def test_hole_subtraction_preserves_mask_metadata_save_reload_and_undo(self):
+        target = self.rectangle(2, 2, 35, 35)
+        source = self.rectangle(10, 10, 20, 20, group_id=4)
+        expected = self.window._shapeMask(target) & (1 - self.window._shapeMask(source))
+        self.assertTrue(self.window._perform_subtract(source, target))
+        parts = [shape for shape in self.window.canvas.shapes if shape is not source]
+        actual = np.zeros_like(expected)
+        for part in parts:
+            actual |= self.window._shapeMask(part)
+            self.assertEqual(part.group_id, target.group_id)
+            self.assertEqual(part.flags, target.flags)
+            self.assertEqual(part.other_data, target.other_data)
+        np.testing.assert_array_equal(actual, expected)
+        part_document = {"shapes": [shape_to_annotation(part) for part in parts]}
+        np.testing.assert_array_equal(np.asarray(_mask(part_document, 40, 40)).astype(np.uint8), expected)
+        self.assertTrue(compare_class_masks({"shapes": [shape_to_annotation(target)]}, part_document, 40, 40))
+        # Subtract does not delete its cutter: it still fills those pixels in
+        # the all-class union until the user deliberately removes that entry.
+        with_cutter = {"shapes": [shape_to_annotation(part) for part in self.window.canvas.shapes]}
+        np.testing.assert_array_equal(np.asarray(_mask(with_cutter, 40, 40)).astype(np.uint8),
+                                      self.window._shapeMask(target))
+        self.assertTrue(self.window._saveFile(str(self.root / "frame.json")))
+        self.window.undoShapeEdit()
+        self.assertEqual([s.points for s in self.window.canvas.shapes], [target.points, source.points])
+        self.window.loadImg()
+        restored = np.zeros_like(expected)
+        for shape in self.window.canvas.shapes:
+            if shape.group_id == 3:
+                restored |= self.window._shapeMask(shape)
+        np.testing.assert_array_equal(restored, expected)
 
     def test_subtraction_split_keeps_pixels_metadata_and_undo(self):
         target = self.rectangle(2, 2, 30, 30)
@@ -156,6 +236,22 @@ class GeometryOperationGuiTests(unittest.TestCase):
             actual |= self.window._shapeMask(shape)
             self.assertEqual(shape.other_data, source.other_data)
         np.testing.assert_array_equal(actual, intended)
+
+    def test_merge_of_ring_parts_preserves_hole_and_explains_parts(self):
+        mask = np.zeros((40, 40), dtype=np.uint8)
+        mask[2:35, 2:35] = 1
+        mask[10:20, 10:20] = 0
+        shapes = [self.polygon(points) for points in exact_mask_polygons(mask)]
+        self.assertEqual(len(shapes), 2)
+        self.assertTrue(self.window._perform_merge(*shapes))
+        actual = np.zeros_like(mask)
+        for shape in self.window.canvas.shapes:
+            actual |= self.window._shapeMask(shape)
+            self.assertEqual(shape.group_id, 3)
+        np.testing.assert_array_equal(actual, mask)
+        self.assertIn("Holes will be preserved", self.question.call_args.args[2])
+        self.window.undoShapeEdit()
+        self.assertEqual([shape.points for shape in self.window.canvas.shapes], [shape.points for shape in shapes])
 
     def test_merge_conflicting_identity_or_metadata_is_blocked(self):
         source = self.rectangle(2, 2, 15, 15)
