@@ -705,10 +705,15 @@ confirmation on first save.
 2. In Edit mode, Ctrl-select annotated objects in **Polygon Labels** or on the
    image. Choose a backend and click **Track selected**. This initializes the
    reference automatically; there is no separate memory-bank step.
-3. If several same-class polygons are selected, the app asks whether they are
-   parts of **one object** (Yes, for example donut parts) or **separate objects**
-   (No). Different-class objects remain separate. Selecting a part of an already
-   tracked object includes its other parts.
+3. When selected polygons have matching class, label, and other metadata but
+   distinct tracking identities, **Track selected** asks whether they are parts
+   of **one object** (Yes, for example donut parts) or **separate objects** (No).
+   Fresh polygons each start with a separate identity. Parts already sharing a
+   `video_object_id` are one object and skip this question; selecting one part
+   includes its other parts. Different-class objects remain separate: select,
+   for example, hair and a basketball together to track both in one pass.
+   Check the **Tracking N object(s)** status after initialization. The number of
+   polygon parts can change between frames without changing object identity.
 4. Press **Page Down** to advance, then **Space** or **Propagate frame** to predict
    the tracked objects on that frame. Inspect and save with **S**. Existing
    tracked annotations require replacement confirmation; unrelated annotations

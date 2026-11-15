@@ -47,14 +47,29 @@ not a STCN-versus-SAM2/3 accuracy benchmark.
 
 ## Identity, holes, and failure safety
 
-1. On disposable annotations, select two objects with the same class ID. Choose
-   **No** when asked whether they are parts of one object. They should track
-   separately without changing their class IDs. Inspect `video_object_id` in
-   saved JSON if needed: the two objects should have different values.
-2. For donut parts, select all parts and choose **Yes** to combine them as one
-   tracking object. The reference mask must keep its hole. Predictions remain
-   model suggestions and can need manual correction. Generated parts share
-   one tracking ID and preserve labels, flags, descriptions, and custom metadata.
+1. On disposable annotations, create two separate polygons with the same class
+   ID, label, and other metadata. Use fresh manual polygons, rather than two
+   propagated parts of an existing tracked object. In Edit mode, Ctrl-select
+   both entries in **Polygon Labels**, then click **Track selected**. The
+   **Are these parts of one object?** question appears at this point: choose
+   **No**. The status should say **Tracking 2 object(s)**. Save this reference
+   frame and inspect `video_object_id`: the two polygons should have different
+   values while retaining the same class/group ID. Check this before advancing;
+   prediction quality and the number of output polygons are separate checks.
+   Two parts already sharing a tracking ID are automatically treated as one
+   object, without asking again. Different labels or other metadata also skip
+   the question, keeping distinct identities separate.
+2. For donut parts, select all fresh parts with matching labels and metadata,
+   then choose **Yes** to combine them as one tracking object. Already-linked
+   parts need no question. The reference mask must keep its hole. Predictions
+   remain model suggestions and can need manual correction. Generated parts
+   share one tracking ID and preserve labels, flags, descriptions, and custom
+   metadata. One tracked object can produce one, two, or more polygon parts on
+   different frames; the tracking ID, rather than the polygon count, identifies it.
+   To test multiple classes together, annotate hair and a basketball on the
+   same reference frame with different class/group IDs. Ctrl-select both and
+   click **Track selected**: they stay separate without a grouping question.
+   Advance and propagate both together; no separate pass or rewind is needed.
 3. Try STCN on a copy of the app without its optional STCN/checkpoint files:
    Track selected should show setup guidance, while images/review still open.
    Do not move/delete your working weights for this check; the automated tests
