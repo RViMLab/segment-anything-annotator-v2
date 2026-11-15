@@ -117,8 +117,8 @@ class VideoWindowMixin:
         self._video_frame_metadata = None
         self.video_panel.hide()
         self.video_panel.track.setEnabled(False)
-        self.button_last.setText("Last Image")
-        self.button_next.setText("Next Image")
+        self.button_last.setText("Previous image (PgUp)")
+        self.button_next.setText("Next image (PgDown)")
         self.setWindowTitle("segment-anything-annotator")
 
     def stopVideoTracking(self):

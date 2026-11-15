@@ -28,6 +28,7 @@ from utils.class_name_consistency import ClassNameChecker, ConsistencyReport, nu
 from utils.class_mapping_dialog import ClassMappingDialog, MappedLabelDialog
 from utils.class_mapping import load_categories
 from utils.video_window import VideoWindowMixin
+from utils.help_dialog import HelpDialog, decorate_shortcut_actions
 from utils.polygon_label_list import PolygonLabelListWidget
 from utils.download_model import download_model
 from utils.app_icon import configure_qt_application, configure_windows_app_id
@@ -187,9 +188,9 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         self.current_img = ''
         self.current_img_data = ''
 
-        self.button_next = QPushButton('Next Image', self)
+        self.button_next = QPushButton('Next image (PgDown)', self)
         self.button_next.clicked.connect(self.clickButtonNext)
-        self.button_last = QPushButton('Last Image', self)
+        self.button_last = QPushButton('Previous image (PgUp)', self)
         self.button_last.clicked.connect(self.clickButtonLast)
         self.next_image_shortcut = QtWidgets.QShortcut(
             QtGui.QKeySequence("PgDown"), self
@@ -201,7 +202,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         )
         self.previous_image_shortcut.setContext(Qt.ApplicationShortcut)
         self.previous_image_shortcut.activated.connect(self.clickButtonLast)
-        self.button_jump = QPushButton('Jump', self)
+        self.button_jump = QPushButton('Jump (J)', self)
         self.button_jump.clicked.connect(self.clickButtonJump)
         self.jump_image_shortcut = QtWidgets.QShortcut(QtGui.QKeySequence("J"), self)
         self.jump_image_shortcut.activated.connect(self.clickButtonJump)
@@ -636,7 +637,10 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         )
         
 
+        helpAction = action("Help (F1)", self.showHelp, "F1", tip="Shortcuts and common annotation questions")
+        self._help_dialog = None
         self.actions = utils.struct(
+            help=helpAction,
             categoryFile=categoryFile,
             classMapping=classMapping,
             videoDirectory=videoDirectory,
@@ -665,6 +669,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
             subtract=subtract,
             merge=merge,
             save=save,
+            saveAs=saveAs,
             onShapesPresent=(saveAs, hideAll, showAll, toggleAll),
             menu=(
                 createMode,
@@ -709,6 +714,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         )
 
         self.toolbar = self.addToolBar('Tool')
+        self.toolbar.addAction(helpAction)
         self.toolbar.addAction(categoryFile)
         self.toolbar.addAction(classMapping)
         self.toolbar.addAction(imageDirectory)
@@ -737,6 +743,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         self.toolbar.addAction(merge)
         self.toolbar.addAction(save)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        decorate_shortcut_actions(self)
 
         zoom = QtWidgets.QWidgetAction(self)
         zoom.setDefaultWidget(self.zoomWidget)
@@ -762,6 +769,15 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         # Filter bare digits before the canvas handles them. Unlike an active
         # QShortcut, this leaves text-entry keys available to their widgets.
         QApplication.instance().installEventFilter(self)
+
+    def showHelp(self):
+        if self._help_dialog is None:
+            self._help_dialog = HelpDialog(self)
+        self._help_dialog.refresh(self)
+        self._help_dialog.show()
+        self._help_dialog.raise_()
+        self._help_dialog.activateWindow()
+        self._help_dialog.search.setFocus()
 
     def configureReviewSession(self, validation_report):
         from review.panel import ReviewPanel
@@ -802,8 +818,8 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         self.actions.imageDirectory.setEnabled(False)
         self.actions.videoDirectory.setEnabled(False)
         self.actions.saveDirectory.setEnabled(False)
-        self.button_last.setText(self.tr("Last Image"))
-        self.button_next.setText(self.tr("Next Image"))
+        self.button_last.setText(self.tr("Previous image (PgUp)"))
+        self.button_next.setText(self.tr("Next image (PgDown)"))
         self.button_last.setToolTip(
             self.tr("Previous image, including context images (PgUp)")
         )

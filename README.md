@@ -585,10 +585,27 @@ decisions, notes, or annotations. **Use a copied review output/database when
 testing this PR:** older app versions cannot reopen a schema-2 database. The
 comparison policy is recorded alongside each newly computed result.
 
-## Image annotator shortcuts
+## Help and shortcuts
+
+Click **Help (F1)** at the start of the toolbar, or press **F1**, to open the
+searchable help window. It can stay open while you annotate. Search for topics
+such as holes, merge, small objects, save, class mappings, CPU, or tracking.
+Typing and browsing inside Help do not trigger annotation or review shortcuts.
+Close Help or return focus to the annotator to resume using those shortcuts.
+
+Core toolbar captions show their shortcut, for example **Accept (A)**,
+**New polygon (N)**, and **Box prompt (B)**. Hover for tooltips, including alternate
+bindings. The in-app list reads fixed shortcuts from the actual actions and
+navigation controls; contextual digits and review controls have separate explanations.
+The image editor, video editor, and `annotator_video.py` launcher use the same
+navigation: Page Up/Page Down and J. In review mode, Space controls the timer;
+in video annotation, it propagates the current frame.
+
+### Image annotator shortcuts
 
 | Shortcut | Action |
 | --- | --- |
+| `F1` | Searchable Help and FAQ |
 | `Shift+I` | Choose image directory |
 | `Shift+L` | Choose save directory |
 | `Page Up` | Previous image |
