@@ -94,6 +94,10 @@ class ReviewPanel(QtWidgets.QWidget):
             SourceProvenance.SAM2_PROPAGATED_FRAME.value,
         )
         self.provenance_combo.addItem(
+            "STCN propagated frame",
+            SourceProvenance.STCN_PROPAGATED_FRAME.value,
+        )
+        self.provenance_combo.addItem(
             "Reviewed propagated frame",
             SourceProvenance.REVIEWED_PROPAGATED_FRAME.value,
         )

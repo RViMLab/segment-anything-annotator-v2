@@ -32,6 +32,7 @@ class ReviewSessionDialog(QtWidgets.QDialog):
             ("Unknown / legacy", SourceProvenance.UNKNOWN.value),
             ("Manual keyframe", SourceProvenance.MANUAL_KEYFRAME.value),
             ("SAM2 propagated frame", SourceProvenance.SAM2_PROPAGATED_FRAME.value),
+            ("STCN propagated frame", SourceProvenance.STCN_PROPAGATED_FRAME.value),
             ("Reviewed propagated frame", SourceProvenance.REVIEWED_PROPAGATED_FRAME.value),
         ):
             self.default_provenance_combo.addItem(label, value)

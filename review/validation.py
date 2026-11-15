@@ -10,6 +10,7 @@ from PIL import Image
 from .models import (
     ReviewConfig,
     ReviewPair,
+    SourceProvenance,
     ValidationIssue,
     ValidationReport,
     ValidationSeverity,
@@ -370,6 +371,12 @@ def validate_review_config(config: ReviewConfig) -> ValidationReport:
                     annotation_path=annotation_path,
                     image_width=image_width,
                     image_height=image_height,
+                    source_provenance=(
+                        annotation["video_annotation"].get("source")
+                        if isinstance(annotation.get("video_annotation"), dict)
+                        and annotation["video_annotation"].get("source") in {p.value for p in SourceProvenance}
+                        else None
+                    ),
                 )
             )
 
