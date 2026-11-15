@@ -261,7 +261,7 @@ class ReviewStorage:
                         str(reviewed_annotation),
                         pair.image_width,
                         pair.image_height,
-                        config.default_provenance,
+                        pair.source_provenance or config.default_provenance,
                         timestamp,
                         timestamp,
                     ),

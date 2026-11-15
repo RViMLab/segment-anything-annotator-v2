@@ -27,6 +27,7 @@ import utils
 from utils.class_name_consistency import ClassNameChecker, ConsistencyReport, numeric_group_id
 from utils.class_mapping_dialog import ClassMappingDialog, MappedLabelDialog
 from utils.class_mapping import load_categories
+from utils.video_window import VideoWindowMixin
 from utils.polygon_label_list import PolygonLabelListWidget
 from utils.download_model import download_model
 from utils.app_icon import configure_qt_application, configure_windows_app_id
@@ -58,11 +59,11 @@ from segment_anything import sam_model_registry, SamPredictor
 
 LABEL_COLORMAP = imgviz.label_colormap()
 
-class MainWindow(QMainWindow):
+class MainWindow(VideoWindowMixin, QMainWindow):
 
     FIT_WINDOW, FIT_WIDTH, MANUAL_ZOOM = 0, 1, 2
 
-    def __init__(self, parent=None, global_w=1000, global_h=1800, model_type='vit_b', keep_input_size=True, max_size=1080, legacy_label_indices=False):
+    def __init__(self, parent=None, global_w=1000, global_h=1800, model_type='vit_b', keep_input_size=True, max_size=1080, legacy_label_indices=False, max_size_stcn=600):
         super(MainWindow, self).__init__(parent)
         self.resize(global_w, global_h)
         self.model_type = model_type
@@ -120,6 +121,7 @@ class MainWindow(QMainWindow):
         self.review_panel = None
         self.review_tabs = None
         self.current_review_item = None
+        self._initVideoState(max_size_stcn)
 
         self.predictor = None
 
@@ -200,8 +202,9 @@ class MainWindow(QMainWindow):
         self.previous_image_shortcut.setContext(Qt.ApplicationShortcut)
         self.previous_image_shortcut.activated.connect(self.clickButtonLast)
         self.button_jump = QPushButton('Jump', self)
-        self.button_jump.setShortcut('J')
         self.button_jump.clicked.connect(self.clickButtonJump)
+        self.jump_image_shortcut = QtWidgets.QShortcut(QtGui.QKeySequence("J"), self)
+        self.jump_image_shortcut.activated.connect(self.clickButtonJump)
 
         self.img_progress_bar = QProgressBar(self)
         self.img_progress_bar.setMinimum(0)
@@ -390,6 +393,15 @@ class MainWindow(QMainWindow):
             None, "objects", self.tr("Define class names for group IDs in this dataset"),
             enabled=True,
         )
+        videoDirectory = action(
+            self.tr("Video Directory"), self.clickVideoChoose, None, "objects",
+            self.tr("Open extracted video frames in the current editor"), enabled=True,
+        )
+        propagateVideo = action(
+            self.tr("Propagate frame (Space)"), self.propagateVideoFrame, "Space", "objects",
+            self.tr("Track the selected objects into this frame"), enabled=False,
+        )
+        propagateVideo.setIconText(self.tr("Propagate frame (Space)"))
         imageDirectory = action(
             self.tr("Image Directory"),
             lambda: self.clickFileChoose(),
@@ -627,6 +639,8 @@ class MainWindow(QMainWindow):
         self.actions = utils.struct(
             categoryFile=categoryFile,
             classMapping=classMapping,
+            videoDirectory=videoDirectory,
+            propagateVideo=propagateVideo,
             imageDirectory=imageDirectory,
             saveDirectory=saveDirectory,
             showLabels=self.showLabels,
@@ -678,6 +692,7 @@ class MainWindow(QMainWindow):
         labels_layout = QtWidgets.QVBoxLayout(self.labels_widget)
         labels_layout.setContentsMargins(0, 0, 0, 0)
         labels_layout.setSpacing(0)
+        self._setupVideoPanel(labels_layout)
         labels_layout.addWidget(visibility_widget)
         labels_layout.addWidget(self.labelList)
         self.shape_dock.setWidget(self.labels_widget)
@@ -697,6 +712,7 @@ class MainWindow(QMainWindow):
         self.toolbar.addAction(categoryFile)
         self.toolbar.addAction(classMapping)
         self.toolbar.addAction(imageDirectory)
+        self.toolbar.addAction(videoDirectory)
         self.toolbar.addAction(saveDirectory)
         self.toolbar.addAction(self.showLabels)
         self.toolbar.addAction(LoadSAM)
@@ -751,6 +767,7 @@ class MainWindow(QMainWindow):
         from review.panel import ReviewPanel
         from review.storage import ReviewStorage
 
+        self.leaveVideoMode()
         self.review_validation_report = validation_report
         self.review_config = validation_report.config
         self.review_pairs = list(validation_report.pairs)
@@ -783,6 +800,7 @@ class MainWindow(QMainWindow):
             f"({self.review_config.reviewer_id}, {session_state})"
         )
         self.actions.imageDirectory.setEnabled(False)
+        self.actions.videoDirectory.setEnabled(False)
         self.actions.saveDirectory.setEnabled(False)
         self.button_last.setText(self.tr("Last Image"))
         self.button_next.setText(self.tr("Next Image"))
@@ -1262,9 +1280,7 @@ class MainWindow(QMainWindow):
         self._save_destination_confirmed = True
         self.actions.saveDirectory.setToolTip(f"Output folder: {directory}")
         if self.current_img:
-            self.current_output_filename = osp.join(
-                directory, osp.splitext(osp.basename(self.current_img))[0] + ".json",
-            )
+            self.current_output_filename = self._frameAnnotationPath(self.current_img)
             if reload_if_clean and not dirty:
                 self.loadImg()
         return True
@@ -1296,6 +1312,13 @@ class MainWindow(QMainWindow):
                 peers.append((name, (item.reviewed_annotation_path, item.original_annotation_path)))
         else:
             directory = osp.dirname(osp.abspath(filename))
+            if self.video_mode:
+                for sequence in self.video_sequences:
+                    for image in sequence.frames:
+                        if osp.normcase(str(image)) != current:
+                            peers.append((f"{sequence.name}/{image.name}",
+                                          (self._frameAnnotationPath(image, sequence),)))
+                return tuple(sorted(peers, key=lambda value: value[0]))
             for image in self.img_list:
                 if osp.normcase(osp.abspath(image)) == current:
                     continue
@@ -1425,6 +1448,14 @@ class MainWindow(QMainWindow):
         else:
             save_data = defaults
 
+        if self.video_mode and self.video_sequences:
+            if self._video_frame_metadata is not None:
+                save_data["video_annotation"] = deepcopy(self._video_frame_metadata)
+            else:
+                save_data.setdefault("video_annotation", {
+                    "sequence": self.video_sequences[self.video_sequence_index].name,
+                    "source": "manual_keyframe",
+                })
         atomic_write_annotation(
             filename, json.dumps(save_data).encode("utf-8"),
             repair_readonly=self.review_config is not None,
@@ -1640,11 +1671,7 @@ class MainWindow(QMainWindow):
             self.current_output_filename = ""
             annotation_to_load = ""
         else:
-            img_name = os.path.basename(self.current_img)[:-4]
-            self.current_output_filename = osp.join(
-                self.current_output_dir,
-                img_name + '.json',
-            )
+            self.current_output_filename = self._frameAnnotationPath(self.current_img)
             annotation_to_load = self.current_output_filename
         # show filename (including extension) centered above the image area
         try:
@@ -1665,6 +1692,7 @@ class MainWindow(QMainWindow):
         ):
             self.applyBrightnessContrast()
         self._loaded_image = (self.current_img, self.current_img_index)
+        self._onVideoFrameLoaded()
         return True
 
 
@@ -1673,9 +1701,16 @@ class MainWindow(QMainWindow):
         directory = QFileDialog.getExistingDirectory(self, 'choose target fold','.')
         if directory == '':
             return
+        images = sorted(glob.glob(directory + '/*.jpg') + glob.glob(directory + '/*.png'))
+        if not images or cv2.imread(images[0]) is None:
+            QMessageBox.warning(self, self.tr("Image directory not opened"),
+                                self.tr("Choose a folder with readable JPG/PNG images. The current dataset was kept."))
+            return
+        if not self._canLeaveVideoFrame():
+            return
+        self.leaveVideoMode()
         #self.img_list = glob.glob(directory + '/*.{jpg,png,JPG,PNG}')
-        self.img_list = glob.glob(directory + '/*.jpg') + glob.glob(directory + '/*.png')
-        self.img_list.sort()
+        self.img_list = images
         self.img_len = len(self.img_list)
         if self.img_len == 0:
             return
@@ -2814,6 +2849,7 @@ class MainWindow(QMainWindow):
         self.canvas.restoreShape()
         self.labelList.clear()
         self.loadShapes(self.canvas.shapes)
+        self._restoreVideoMetadataAfterUndo()
         self.actions.undo.setEnabled(self.canvas.isShapeRestorable)
 
     def loadShapes(self, shapes, replace=True):
@@ -2831,6 +2867,7 @@ class MainWindow(QMainWindow):
 
     def copyShape(self):
         self.canvas.endMove(copy=True)
+        self._renewCopiedVideoIdentities(self.canvas.selectedShapes)
         for shape in self.canvas.selectedShapes:
             self.addLabel(shape)
         self.labelList.clearSelection()
@@ -2851,6 +2888,7 @@ class MainWindow(QMainWindow):
                 action.setEnabled(False)
     def duplicateSelectedShape(self):
         added_shapes = self.canvas.duplicateSelectedShapes()
+        self._renewCopiedVideoIdentities(added_shapes)
         self.labelList.clearSelection()
         for shape in added_shapes:
             self.addLabel(shape)
@@ -3041,6 +3079,10 @@ def get_parser():
         action="store_true",
         help="Configure and start an annotation review session.",
     )
+    parser.add_argument("--video", action="store_true", help="Show optional video tracking controls in this GUI.")
+    parser.add_argument("--video-directory", default="", help="Open an extracted-frame sequence or its parent folder.")
+    parser.add_argument("--max_size_STCN", "--max-size-stcn", dest="max_size_stcn", type=int, default=600,
+                        help="Maximum STCN frame dimension; default 600. STCN remains optional.")
     parser.add_argument(
         "--reviewer-id",
         default="",
@@ -3068,8 +3110,11 @@ def get_parser():
     )
     return parser
 
-if __name__ == '__main__':
-    args = get_parser().parse_args()
+def main(argv=None):
+    parser = get_parser()
+    args = parser.parse_args(argv)
+    if args.review and (args.video or args.video_directory):
+        parser.error("Review is frame-by-frame; use --review without --video/--video-directory.")
     global_h, global_w = [
         int(i) for i in args.app_resolution.split(',')
     ]
@@ -3083,6 +3128,7 @@ if __name__ == '__main__':
         keep_input_size=args.keep_input_size,
         max_size=args.max_size,
         legacy_label_indices=args.legacy_label_indices,
+        max_size_stcn=args.max_size_stcn,
     )
     if args.review:
         from review.dialog import ReviewSessionDialog
@@ -3100,7 +3146,17 @@ if __name__ == '__main__':
         )
         review_dialog.output_directory_edit.setText(args.review_output)
         if review_dialog.exec_() != QtWidgets.QDialog.Accepted:
-            sys.exit(0)
+            return 0
         main.configureReviewSession(review_dialog.validation_report)
+    elif args.video or args.video_directory:
+        main.video_mode = True
+        main.video_panel.show()
+        main.setWindowTitle("segment-anything-annotator — Video annotation")
     main.show()
-    sys.exit(app.exec_())
+    if args.video_directory:
+        QtCore.QTimer.singleShot(0, lambda: main.openVideoDirectory(args.video_directory))
+    return app.exec_()
+
+
+if __name__ == '__main__':
+    sys.exit(main())

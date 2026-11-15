@@ -24,6 +24,7 @@ class SourceProvenance(str, Enum):
     UNKNOWN = "unknown"
     MANUAL_KEYFRAME = "manual_keyframe"
     SAM2_PROPAGATED_FRAME = "sam2_propagated_frame"
+    STCN_PROPAGATED_FRAME = "stcn_propagated_frame"
     REVIEWED_PROPAGATED_FRAME = "reviewed_propagated_frame"
 
 
@@ -60,6 +61,7 @@ class ReviewPair:
     annotation_path: Path
     image_width: Optional[int] = None
     image_height: Optional[int] = None
+    source_provenance: Optional[str] = None
 
 
 @dataclass(frozen=True)

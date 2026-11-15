@@ -32,7 +32,7 @@ save annotations in Labelme-compatible JSON files.
 - Resumable annotation review sessions with timing and audit metadata
 - Original/reviewed JSON, polygon geometry, and raster-mask comparison
 - Duplicate-safe CSV review export
-- Optional STCN-based video annotation workflow
+- Optional video tracking in the same GUI, with sequence-safe outputs and review
 - CUDA, Apple MPS, and CPU device selection
 
 ## Quick start
@@ -199,6 +199,12 @@ conversion runs only when you click **Accept**, so intermediate thin or complex
 predictions do not interrupt each click with conversion dialogs. SAM predictions
 are suggestions: a single point may be ambiguous, and a negative point does not
 guarantee the exact cut-out that a geometric subtraction provides.
+
+Small regions, including isolated single pixels and straight one-pixel-wide
+regions, are retained on acceptance and video propagation. These use ordinary
+polygons with fractional coordinates where needed; the saved polygons reproduce
+the same pixels in OpenCV and PIL mask exports. No minimum-area filter discards
+small objects or speckles.
 
 **Point prompts: keep clicked regions**, below Invert colours, is enabled by
 default. It previews only connected foreground regions containing a positive
@@ -587,7 +593,7 @@ comparison policy is recorded alongside each newly computed result.
 | `Shift+L` | Choose save directory |
 | `Page Up` | Previous image |
 | `Page Down` | Next image |
-| `J` | Jump to an image |
+| `J` | Jump to an image/frame |
 | `N` or `Ctrl+W` | Manual polygon mode |
 | `P` | Point prompt mode |
 | `B` | Box prompt mode |
@@ -612,18 +618,72 @@ comparison policy is recorded alongside each newly computed result.
 
 ## Video annotation
 
-Video annotation additionally requires
-[STCN](https://github.com/hkchengrex/STCN) and its `stcn.pth` checkpoint:
+Video annotation now uses **the same GUI** as image annotation: the same class
+mapping, polygon/hole editing, display controls, saving, Undo, and shortcuts.
+Click **Video Directory** in the toolbar, or launch with video controls visible:
+
+```powershell
+python .\annotator.py --video --app_resolution 1000,1600 --model_type vit_b --keep_input_size True --max_size 720 --max-size-stcn 600
+```
+
+You can preselect the supplied demo using `--video-directory .\demo_video` or
+`--video-directory .\demo_video\kunkun_00000_15_59`. The old
+`python annotator_video.py ...` command is a compatibility launcher for this same
+GUI; `--max_size_STCN` remains an alias for `--max-size-stcn`. There is no separate
+legacy shortcut layout. Adding `--review` to that launcher opens ordinary
+frame-by-frame review instead of tracking mode.
+
+### Optional tracking prerequisites
+
+Normal image annotation and review do **not** require STCN. To enable the STCN
+tracking option, install the normal annotator dependencies and a compatible
+PyTorch 2.x/torchvision pair, then add [STCN](https://github.com/hkchengrex/STCN) and its official
+checkpoint beside `annotator.py`:
 
 ```text
 segment-anything-annotator-v2/
 ├── STCN/
 ├── stcn.pth
-├── annotator_video.py
+├── annotator.py
 └── ...
 ```
 
-Organize extracted video frames as:
+From the application folder, with the intended Python environment activated:
+
+```powershell
+git clone https://github.com/hkchengrex/STCN.git STCN
+python -m pip install -r requirements-video.txt
+python -c "import gdown; gdown.download(id='1mRrE0uCI2ktdWlUgapJI_KmgeIiF2eOm', output='stcn.pth', quiet=False)"
+```
+
+Clone/download only if those items are missing. `gdown` is needed for this
+download, not for runtime inference. STCN's initial construction may also fetch
+its ResNet backbone weights if they are not already cached. Its training and
+standalone evaluation packages are not required by this GUI. Keep the project's
+headless OpenCV dependency; do not replace it with a second Qt-enabled OpenCV.
+
+Choose **STCN (optional)** explicitly in the video panel before **Track selected**.
+It loads on demand, using CUDA/MPS if available to the active PyTorch build,
+otherwise CPU. CPU-only PyTorch remains supported. SAM is needed only if you use
+SAM to create annotations; manually drawn polygons can seed STCN without loading
+SAM. Missing tracking files produce setup instructions and leave annotations intact.
+
+The real CPU integration check used Python 3.13.9, PyTorch 2.13.0+cpu, and
+torchvision 0.28.0+cpu. Keep PyTorch and torchvision versions compatible with
+each other and the chosen device rather than changing a working environment
+just to enable the optional controls.
+
+STCN is an implemented option, **not a quality recommendation or automatic
+default**. SAM 2/3 are not tracking backends in this release. Select a preferred
+backend only after evaluating specific models on representative data and the
+same hardware; parameter count alone does not establish speed, memory, or
+annotation accuracy.
+
+### Frame layout and output
+
+Choose a folder directly containing extracted JPG/JPEG/PNG frames, or a parent
+with one frame folder per clip. Use zero-padded filenames so alphabetical order
+matches time. Compressed MP4/AVI files must first be extracted into frames.
 
 ```text
 video_folder/
@@ -635,26 +695,99 @@ video_folder/
     └── ...
 ```
 
-Start the video annotator with:
+Use **Save Directory** to select one output root. The app writes
+`output_root/video_1/00000.json`, etc., so equal frame names in different
+sequences cannot overwrite one another. Duplicate frame stems within a sequence
+(such as `00000.jpg` and `00000.png`) are rejected. Selecting the output directory
+before the video is supported; omitting it uses the normal default-output
+confirmation on first save.
 
-```bash
-python annotator_video.py --app_resolution 1000,1600 --model_type vit_b --keep_input_size True --max_size 720 --max_size_STCN 600
+### Annotate, track, correct
+
+1. Open **Video Directory**, select the clip using the video-panel sequence list,
+   and choose the output folder. Load/reuse the approved class mapping for the
+   dataset. Annotate the reference frame with SAM or Manual Polygons, assigning
+   numeric class/group IDs as usual.
+2. In Edit mode, Ctrl-select annotated objects in **Polygon Labels** or on the
+   image. Choose a backend and click **Track selected**. This initializes the
+   reference automatically; there is no separate memory-bank step.
+3. When selected polygons have matching class, label, and other metadata but
+   distinct tracking identities, **Track selected** asks whether they are parts
+   of **one object** (Yes, for example donut parts) or **separate objects** (No).
+   Fresh polygons each start with a separate identity. Parts already sharing a
+   `video_object_id` are one object and skip this question; selecting one part
+   includes its other parts. Different-class objects remain separate: select,
+   for example, hair and a basketball together to track both in one pass.
+   Check the **Tracking N object(s)** status after initialization. The number of
+   polygon parts can change between frames without changing object identity.
+4. Press **Page Down** to advance, then **Space** or **Propagate frame** to predict
+   the tracked objects on that frame. Inspect and save with **S**. Existing
+   tracked annotations require replacement confirmation; unrelated annotations
+   are kept, so check for duplicates. No other frame is changed by propagation.
+5. To improve tracking, edit the current tracked polygons and click **Use
+   correction**. It adds that frame as a reference for subsequent frames,
+   retaining the initial reference and up to four recent corrections to bound
+   memory. Correcting an earlier frame discards future references. Every
+   tracked object must have annotation parts on a correction frame. To change
+   the object set, select the desired annotations and use **Track selected** again.
+6. Use **Page Up/Page Down** and **J** for navigation. Forward jumps use reference
+   memory instead of an accidental future-frame prediction. To track from an
+   earlier frame, initialize a reference there first. Changing sequence or opening
+   an ordinary image directory stops tracking.
+
+Tracking loads/processes individual frames rather than the whole clip. Model
+work runs off the UI thread; editing controls remain locked during each model
+step. Geometry conversion preserves holes and every displayed mask pixel in
+OpenCV/PIL; output that fails these checks or exceeds the complexity limit is rejected without modifying
+annotations or accepting that prediction into tracker memory.
+
+**Class/group ID is still the class.** Tracking uses a separate `video_object_id`
+extra field, so two forceps of the same class do not become one object. Generated
+polygon parts share their object's tracking ID, class, label, flags, and custom
+metadata. Duplicate Polygons / Copy here give copied objects new tracking IDs
+while keeping their class IDs; copying an object must not silently link it to
+the original. Hole parts are unioned for tracking, not XOR-filled. A `video_annotation`
+record stores frame provenance/reference information for review; consumers may
+ignore these extra fields and rasterize ordinary polygons as before.
+
+**Ctrl+U** undoes annotation changes, including propagation. Undo stops the
+active tracker to avoid using a reverted reference; select the desired objects
+and **Track selected** to restart. Saved annotations/IDs persist, but tracker
+memory does not: after restarting the app, load the saved frame and initialize
+tracking again. **Use correction** is not an undoable history of model states.
+
+| Shortcut | Image and video action |
+| --- | --- |
+| `Page Down` / `Page Up` | Next / previous image or frame |
+| `J` | Jump within the current image/frame list |
+| `N` / `Ctrl+W` | New manual polygon |
+| `B` | SAM box prompt |
+| `P` / `C` | SAM point / circle prompt |
+| `E`, `A`, `R`, `S`, `Ctrl+U` | Edit, accept SAM, reject SAM, save, undo |
+| `1`–`3` | Select active SAM proposals; otherwise normal class visibility |
+| `Space` | Propagate to the current video frame when tracking is active |
+
+### Reviewing video outputs
+
+Use the ordinary **`--review`** workflow, without `--video`; STCN is not needed
+to review saved annotations. For a sequence-parent image root, choose the video
+output root as original annotations, and a separate reviewed-output directory.
+Relative sequence/frame paths pair the files safely across clips. If choosing a
+single frame folder instead, choose its corresponding annotation subfolder.
+
+```powershell
+python .\annotator.py --review --review-images .\demo_video --review-annotations .\output_STCN_unified_manual --review-output .\review_STCN_unified_manual
 ```
 
-Annotate the first frame with SAM, select objects with `Ctrl` + left-click, add
-them to memory, and use **Propagate** on subsequent frames.
-
-| Shortcut | Video action |
-| --- | --- |
-| `N` | Next frame |
-| `B` | Previous frame |
-| `E` | Edit mode |
-| `A` | Accept proposal |
-| `R` | Reject proposal |
-| `D` | Delete |
-| `S` | Save |
-| `Space` | Propagate |
-| `1`–`3` | Select a mask proposal |
+Create/select the separate reviewed folder before validating the session.
+New review records infer manual-keyframe or STCN-propagated provenance from the
+saved video metadata; legacy files use the configured default (which now also
+offers **STCN propagated frame**). Existing review records retain their audit
+values when resumed. Decisions, timing, name checks, geometry/class-mask
+comparison, and CSV export work as for images. Original JSONs remain untouched.
+Propagation and sequence switching are disabled in review: corrections and
+decisions apply to individual reviewed frames rather than silently changing
+other targets.
 
 ## Platform notes
 

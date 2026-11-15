@@ -1,0 +1,4 @@
+# Optional downloader for STCN weights. Inference reuses torch/torchvision,
+# NumPy, Pillow, and OpenCV from the normal annotator environment.
+# Clone STCN separately as described in README; training dependencies are not needed.
+gdown>=5.0

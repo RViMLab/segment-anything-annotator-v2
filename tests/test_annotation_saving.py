@@ -51,6 +51,7 @@ class AnnotationSavingTests(unittest.TestCase):
         panel.problem_combo.currentText.return_value = ""
         panel.provenance_combo.currentData.return_value = "unknown"
         self.window = SimpleNamespace(
+            video_mode=False,
             review_config=config, review_storage=storage, review_session=session,
             review_items=items, current_review_item=items[0],
             review_item_by_key={"frame": items[0]},
@@ -75,7 +76,7 @@ class AnnotationSavingTests(unittest.TestCase):
                      "_replaceReviewItem", "_reviewProgress", "navigateImage",
                      "navigateReviewTarget", "loadImg", "loadAnno", "closeEvent", "show_proposals",
                      "_checkClassNameConsistency", "_classNameCandidates", "_waitForClassNameCheck",
-                     "_showClassNameWarning"):
+                     "_showClassNameWarning", "_onVideoFrameLoaded"):
             setattr(self.window, name, MethodType(getattr(MainWindow, name), self.window))
         self.window.addLabel = lambda shape: self.window.labelList.append(
             SimpleNamespace(shape=lambda: shape)

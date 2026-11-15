@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from qtpy import QtCore, QtTest, QtWidgets
 from shape import Shape
-from utils.geometry_operations import mask_topology
+from utils.geometry_operations import GeometrySafetyError, mask_topology
 
 
 class SamHoleTests(unittest.TestCase):
@@ -143,23 +143,33 @@ class SamHoleTests(unittest.TestCase):
         self.assertTrue(self.window.button_proposal_list[1].isEnabled())
         self.assertEqual(self.window._selected_sam_index, 1)
         self.warning.assert_not_called()
-        self.window.addSamMask()
+        with patch("annotator.exact_mask_polygons", side_effect=GeometrySafetyError("Conversion failed")):
+            self.window.addSamMask()
         self.warning.assert_called_once()
         self.window.selectSamProposal(0)
         self.assertTrue(self.window._prepareSelectedSamMask())
         np.testing.assert_array_equal(self.union(self.window.sam_mask), self.mask)
 
-    def test_all_unrepresentable_or_empty_proposals_explain_failure_without_modifying_data(self):
+    def test_thin_proposal_accepts_saves_and_reloads_without_losing_small_regions(self):
         thin = np.zeros_like(self.mask)
         thin[10:40, 5] = 1
+        thin[20:25, 20:25] = 1
+        thin[-1, -1] = 1
         self.window._buildSamProposals(np.stack([thin, thin * 0, thin]), [0.9, 0.8, 0.7])
         self.warning.assert_not_called()
         self.assertEqual([button.isEnabled() for button in self.window.button_proposal_list], [True, False, True])
-        self.window.addSamMask()
-        self.warning.assert_called_once()
-        self.assertIn("Adjust the prompts", self.warning.call_args.args[2])
-        self.assertFalse(self.window.actions.save.isEnabled())
-        self.assertEqual(self.window.canvas.shapes, [])
+        with patch.object(self.window.labelDialog, "popUp", return_value=("tag", {}, 2, "tiny")):
+            self.window.addSamMask()
+        self.warning.assert_not_called()
+        np.testing.assert_array_equal(self.union(self.window.canvas.shapes), thin)
+        self.assertTrue(self.window._saveFile(str(self.root / "frame.json")))
+        self.window.loadImg()
+        np.testing.assert_array_equal(self.union(self.window.canvas.shapes), thin)
+        mask = Image.new("L", (80, 60))
+        for shape in self.window.canvas.shapes:
+            self.assertEqual((shape.label, shape.group_id), ("tag", 2))
+            ImageDraw.Draw(mask).polygon([(p.x(), p.y()) for p in shape.points], fill=1)
+        np.testing.assert_array_equal(np.asarray(mask), thin)
 
     def test_predictions_are_raster_previews_without_running_polygon_conversion(self):
         self.window.keep_clicked_regions.setChecked(True)

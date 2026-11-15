@@ -84,9 +84,25 @@ def exact_mask_polygons(mask):
         contours, hierarchy = cv2.findContours(part, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
         holes = [contour for contour, relation in zip(contours, hierarchy[0]) if relation[3] != -1]
         if not holes:
-            if any(len(contour) < 3 for contour in contours):
-                raise GeometrySafetyError("A small or thin region cannot be represented as a filled polygon.")
-            return [(contour.reshape(-1, 2) + [offset_x, offset_y]).tolist() for contour in contours]
+            polygons = []
+            for contour in contours:
+                points = (contour.reshape(-1, 2) + [offset_x, offset_y]).tolist()
+                # OpenCV represents isolated pixels and straight one-pixel-wide
+                # regions with only one or two vertices. Give these a nonzero
+                # geometric area inside the same raster pixels. Both exporters
+                # truncate these nonnegative coordinates to the original pixel
+                # centres; the full-mask checks below still verify every pixel.
+                if len(points) == 1:
+                    x0, y0 = points[0]
+                    points = [[x0, y0], [x0 + 0.25, y0],
+                              [x0 + 0.25, y0 + 0.25], [x0, y0 + 0.25]]
+                elif len(points) == 2:
+                    first, last = points
+                    dx, dy = (0, 0.25) if first[0] != last[0] else (0.25, 0)
+                    points = [first, last, [last[0] + dx, last[1] + dy],
+                              [first[0] + dx, first[1] + dy]]
+                polygons.append(points)
+            return polygons
         hx, hy, hw, hh = cv2.boundingRect(holes[0])
         cut_x, cut_y = hx + hw // 2, hy + hh // 2
         # Cutting through a hole opens it at the boundary of each half. Try
