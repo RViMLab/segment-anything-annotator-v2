@@ -86,11 +86,31 @@ class MaskSafetyTests(unittest.TestCase):
             reproduced |= polygon_mask(polygon, mask.shape)
         np.testing.assert_array_equal(mask, reproduced)
 
-    def test_thin_region_is_blocked_instead_of_dropped(self):
-        mask = np.zeros((32, 32), dtype=np.uint8)
-        mask[2:12, 2] = 1
-        with self.assertRaises(GeometrySafetyError):
-            exact_mask_polygons(mask)
+    def test_single_pixels_and_thin_regions_are_preserved_with_editable_area(self):
+        for kind in ("pixel", "horizontal", "vertical", "diagonal", "antidiagonal", "mixed"):
+            with self.subTest(kind=kind):
+                mask = np.zeros((32, 32), dtype=np.uint8)
+                if kind == "pixel":
+                    mask[-1, -1] = 1
+                elif kind == "horizontal":
+                    mask[0, :] = 1
+                elif kind == "vertical":
+                    mask[:, -1] = 1
+                elif kind in ("diagonal", "antidiagonal"):
+                    np.fill_diagonal(mask if kind == "diagonal" else mask[:, ::-1], 1)
+                else:
+                    mask[2:15, 2:15] = 1
+                    mask[20:30, 20] = 1
+                    mask[-1, -1] = 1
+                polygons = self.assert_exact_parts(mask)
+                for polygon in polygons:
+                    self.assertGreater(cv2.contourArea(np.asarray(polygon, dtype=np.float32)), 0)
+
+    def test_every_three_by_three_binary_mask_preserves_pixels_in_both_exporters(self):
+        for bits in range(512):
+            with self.subTest(bits=bits):
+                mask = np.array([(bits >> i) & 1 for i in range(9)], dtype=np.uint8).reshape(3, 3)
+                self.assert_exact_parts(mask)
 
     def test_empty_mask_is_supported_and_diagnostics_count_changes(self):
         before = np.zeros((16, 16), dtype=np.uint8)

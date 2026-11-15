@@ -19,7 +19,7 @@ from qtpy import QtCore, QtTest, QtWidgets
 from review import ReviewConfig, ReviewStatus, validate_review_config
 from shape import Shape
 import torch
-from utils.geometry_operations import exact_mask_polygons, polygon_mask
+from utils.geometry_operations import GeometrySafetyError, exact_mask_polygons, polygon_mask
 from utils.video_panel import TrackingProgressDialog
 from utils.video_window import VideoWindowMixin
 from utils.annotation_document import shape_to_annotation
@@ -198,10 +198,30 @@ class VideoTests(unittest.TestCase):
         shape = self.polygon(20, group=4)
         mask = np.zeros((32, 40), np.uint8)
         mask[3:20, 2] = 1
-        with patch.object(self.backend, "predict", return_value=[mask]):
+        with patch.object(self.backend, "predict", return_value=[mask]), patch(
+                "utils.video_window.exact_mask_polygons", side_effect=GeometrySafetyError("Conversion failed")):
             self.assertFalse(self.window.propagateVideoFrame())
         self.assertEqual(self.window.canvas.shapes, [shape])
         self.assertFalse(self.window.actions.save.isEnabled())
+
+    def test_thin_prediction_is_saved_without_dropping_pixels_or_identity(self):
+        self.open()
+        self.polygon()
+        self.window.trackVideoSelection()
+        identity = self.window.video_objects[0]["id"]
+        self.window.clickButtonNext()
+        mask = np.zeros((32, 40), np.uint8)
+        mask[3:20, 2] = 1
+        mask[-1, -1] = 1
+        with patch.object(self.backend, "predict", return_value=[mask]):
+            self.assertTrue(self.window.propagateVideoFrame())
+        self.assertTrue(self.window.saveFile())
+        self.window.loadImg()
+        reproduced = np.zeros_like(mask)
+        for shape in self.window.canvas.shapes:
+            self.assertEqual(shape.other_data["video_object_id"], identity)
+            reproduced |= polygon_mask([(p.x(), p.y()) for p in shape.points], mask.shape)
+        np.testing.assert_array_equal(reproduced, mask)
 
     def test_correction_updates_reference_and_metadata_without_changing_class(self):
         self.open()

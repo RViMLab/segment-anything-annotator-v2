@@ -79,8 +79,10 @@ not a STCN-versus-SAM2/3 accuracy benchmark.
    dataset/tracker. Cancel/fail a save and verify switching is blocked.
 5. The model progress window must keep repainting while the model runs; Escape
    or its close controls must not dismiss it and expose changing frame controls
-   mid-inference. Unsupported geometry must leave annotations and accepted
-   tracker memory unchanged.
+   mid-inference. Small and thin SAM proposals should accept, save, and reopen;
+   video predictions must also retain these regions. No pixels should be silently
+   removed. Geometry that fails pixel-preservation checks or exceeds complexity
+   limits must leave annotations and accepted tracker memory unchanged.
 
 ## Review of video frames
 

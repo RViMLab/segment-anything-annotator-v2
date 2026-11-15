@@ -200,6 +200,12 @@ predictions do not interrupt each click with conversion dialogs. SAM predictions
 are suggestions: a single point may be ambiguous, and a negative point does not
 guarantee the exact cut-out that a geometric subtraction provides.
 
+Small regions, including isolated single pixels and straight one-pixel-wide
+regions, are retained on acceptance and video propagation. These use ordinary
+polygons with fractional coordinates where needed; the saved polygons reproduce
+the same pixels in OpenCV and PIL mask exports. No minimum-area filter discards
+small objects or speckles.
+
 **Point prompts: keep clicked regions**, below Invert colours, is enabled by
 default. It previews only connected foreground regions containing a positive
 click, excluding disconnected speckles while preserving holes. Add a positive
@@ -732,7 +738,7 @@ confirmation on first save.
 Tracking loads/processes individual frames rather than the whole clip. Model
 work runs off the UI thread; editing controls remain locked during each model
 step. Geometry conversion preserves holes and every displayed mask pixel in
-OpenCV/PIL; unsupported thin/complex output is rejected without modifying
+OpenCV/PIL; output that fails these checks or exceeds the complexity limit is rejected without modifying
 annotations or accepting that prediction into tracker memory.
 
 **Class/group ID is still the class.** Tracking uses a separate `video_object_id`
