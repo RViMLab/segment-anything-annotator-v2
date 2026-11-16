@@ -37,6 +37,10 @@ save annotations in Labelme-compatible JSON files.
 
 ## Quick start
 
+New to GitHub or Python? Follow the [beginner installation guide](INSTALL.md)
+for Windows, macOS, and Linux, including prerequisites, cloning, launching,
+updates, and your first annotation.
+
 ### 1. Create an environment
 
 Python 3.8 or newer is required. A virtual environment is recommended.
