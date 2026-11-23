@@ -159,7 +159,7 @@ class NiftiVolume:
         if not destination.is_dir():
             raise VolumeError("Choose an existing export parent folder.")
         mask = np.zeros(self.shape, dtype=np.uint32)
-        classes, annotated, missing = {}, [], []
+        classes, annotated, missing, provenance = {}, [], [], {}
         for index in range(self.shape[2]):
             path = annotations / f"slice_{index:05}.json"
             if not path.is_file():
@@ -168,6 +168,8 @@ class NiftiVolume:
             document = json.loads(path.read_text(encoding="utf-8"))
             self.validate_annotation(document, index)
             annotated.append(index)
+            if "volume_tracking" in document:
+                provenance[str(index)] = document["volume_tracking"]
             for record in document["shapes"]:
                 if not isinstance(record, dict):
                     raise VolumeError(f"{path.name}: invalid annotation record.")
@@ -200,6 +202,7 @@ class NiftiVolume:
             "classes": [{"mask_value": group + 1, "group_id": group, "labels": sorted(names)}
                         for group, names in sorted(classes.items())],
             "annotated_slices": annotated, "unannotated_slices": missing,
+            "slice_tracking_provenance": provenance,
             "unannotated_policy": "zero-filled; these slices have NOT been confirmed as background",
             "overlap_policy": "last polygon in the saved list wins; hidden polygons are included",
         }

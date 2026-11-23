@@ -20,8 +20,16 @@ TOPICS = (
      "Window centre/width change previews in source intensity units, leaving scan data intact. "
      "Export NIfTI mask writes a native-grid segmentation and JSON mapping in a new bundle. "
      "Mask value = group ID + 1, with zero background; original annotation group IDs stay unchanged. "
-     "Never-saved slices are zero-filled and listed as unannotated. DICOM, alternate planes, native volume review, "
-     "4D data and STCN propagation are not included in this first version."),
+     "Never-saved slices are zero-filled and listed as unannotated. DICOM, alternate planes, native volume review "
+     "and 4D data are not included."),
+    ("How do I propagate objects through NIfTI slices with STCN?",
+     "Install the optional STCN code/checkpoint from the README. This use is experimental, not medically validated. "
+     "Annotate a reference slice, Ctrl-select the objects, choose STCN and increasing/decreasing slice index, then Track selected. "
+     "Advance with PgDown/PgUp in that direction, Propagate slice (Space), inspect/edit and Save. "
+     "Use correction adds a reference; every tracked object needs nonempty parts. If a target disappears, stop and "
+     "reinitialize the remaining object set. For the other direction, Stop tracking, return to an annotated reference, "
+     "change direction, select objects and Track selected again. Undo, volume changes and applied intensity-window changes "
+     "stop tracking. Reopening saves polygons/provenance, not model memory. Original voxel alignment and export mapping remain intact."),
     ("Why can't I merge polygons?",
      "Merge requires matching labels, class/group IDs, flags, and other metadata. "
      "Draw-order checks also prevent changing the visible overlap class. Read the rejection message for the specific conflict. "

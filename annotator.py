@@ -1484,6 +1484,8 @@ class MainWindow(VolumeWindowMixin, VideoWindowMixin, QMainWindow):
                 })
         if getattr(self, "volume", None) is not None:
             save_data["medical_volume"] = self.volume.metadata(self.current_img_index)
+            if self._video_frame_metadata is not None:
+                save_data["volume_tracking"] = deepcopy(self._video_frame_metadata)
             # Cached paths and displayed pixels can change with the window or
             # session. Embedded images keep slice JSON independently readable.
             save_data["imagePath"] = self.current_img
@@ -2884,6 +2886,7 @@ class MainWindow(VolumeWindowMixin, VideoWindowMixin, QMainWindow):
         shape.select_fill_color = QtGui.QColor(r, g, b, 155)
 
     def undoShapeEdit(self):
+        self._prepareTrackingUndo()
         self.canvas.restoreShape()
         self.labelList.clear()
         self.loadShapes(self.canvas.shapes)

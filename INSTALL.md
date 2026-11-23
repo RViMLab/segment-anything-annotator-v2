@@ -212,7 +212,8 @@ python annotator.py --volume path/to/scan.nii.gz --app_resolution 1000,1600 --mo
 
 Or launch normally and click **Open Volume**. See the
 [volume workflow and export mapping](README.md#nifti-medical-volumes-optional)
-before exporting masks. DICOM and slice propagation are not included yet.
+before exporting masks. Optional experimental slice propagation also needs the
+[STCN prerequisites](README.md#optional-tracking-prerequisites). DICOM is not included yet.
 
 ## Quick get started
 

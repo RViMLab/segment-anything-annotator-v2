@@ -79,6 +79,10 @@ class VolumeWindowMixin:
         self.volume_center.setValue((volume.low + volume.high) / 2)
         self.volume_width.setValue(volume.high - volume.low)
         self.volume_panel.show()
+        self.video_panel.set_volume_mode(True)
+        self.video_panel.show()
+        self.video_panel.track.setEnabled(True)
+        self.video_panel.status.setText("Select reference objects, choose STCN and a direction, then Track selected.")
         self.button_last.setText("Previous slice (PgUp)")
         self.button_next.setText("Next slice (PgDown)")
         self.setWindowTitle(f"segment-anything-annotator — NIfTI: {volume.path.name}")
@@ -86,9 +90,17 @@ class VolumeWindowMixin:
 
     def leaveVolumeMode(self):
         if getattr(self, "volume", None) is not None:
+            self.stopVideoTracking()
             self.volume.close()
             self.volume = None
             self.volume_panel.hide()
+            self.video_panel.set_volume_mode(False)
+            self.video_panel.hide()
+            self.video_panel.track.setEnabled(False)
+            self._video_frame_metadata = None
+            self._video_metadata_history = {}
+            self._tracking_backup_metadata = {}
+            self._tracking_undo_metadata = None
 
     def _volumeSliceLoaded(self):
         if self.volume is None:
@@ -122,6 +134,7 @@ class VolumeWindowMixin:
                                           lambda: self.volume.render(center - width / 2, center + width / 2))
         except Exception as error:
             return self._volumeError(error)
+        self.stopVideoTracking()
         self.volume.use_render(rendered)
         self.img_list = self.volume.paths
         self.current_img = self.img_list[self.current_img_index]
@@ -130,6 +143,7 @@ class VolumeWindowMixin:
         if loaded:
             self.canvas.shapesBackups = backups
             self.actions.undo.setEnabled(self.canvas.isShapeRestorable)
+            self.video_panel.status.setText("Display window applied. Select objects and initialize tracking again.")
         return loaded
 
     def exportVolumeMask(self):
