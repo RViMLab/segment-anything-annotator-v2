@@ -47,5 +47,6 @@ Optional export geometry check, after replacing the bundle path below:
 python -c "import nibabel as n, numpy as p; a=n.load('.manual-test-data-volume/toy_volume.nii.gz'); b=n.load('PATH_TO_EXPORT_BUNDLE/segmentation.nii.gz'); print(a.shape, b.shape); print('Affine matches:', p.allclose(a.affine,b.affine)); print('qform matches:', p.allclose(a.get_qform(),b.get_qform())); print('sform matches:', p.allclose(a.get_sform(),b.get_sform()))"
 ```
 
-This first PR excludes DICOM, 4D/vector data, alternate viewing planes, native
-volume review, and STCN slice propagation. No real patient data is supplied.
+DICOM, 4D/vector data, alternate viewing planes and native volume review remain
+unsupported. For optional experimental STCN slice propagation, use the separate
+[propagation checklist](MANUAL_TEST_VOLUME_PROPAGATION.md). No real patient data is supplied.

@@ -684,10 +684,49 @@ Never-saved slices are zero-filled but explicitly listed as **unannotated**, not
 confirmed background; the GUI asks before such an export. Saving a deliberately
 empty slice after deleting its annotations records a reviewed-empty slice.
 This is manual completion tracking, not an annotation-review decision.
-No native volume review, DICOM import, 4D/vector data, 3D rendering, or STCN
-slice propagation is included. `--volume` cannot be combined with `--review` or
+No native volume review, DICOM import, 4D/vector data or 3D rendering is included.
+`--volume` cannot be combined with `--review` or
 `--video`. Optional dependencies are not needed for ordinary image/video work.
 Use the [synthetic-data checklist](docs/MANUAL_TEST_NIFTI.md) before real datasets.
+
+### Experimental STCN slice propagation
+
+With the [optional STCN code and checkpoints](#optional-tracking-prerequisites)
+installed, NIfTI mode also exposes **Slice propagation (experimental)**. STCN
+was trained for video, not validated here for 3D medical segmentation. Inspect
+and correct every propagated slice; this is not automatic anatomical labelling.
+
+1. Annotate a reference slice. Ctrl-select the desired objects/parts, explicitly
+   choose **STCN (experimental slices)**, and select increasing or decreasing
+   slice index. **Track selected** initializes only those objects. Class/group
+   IDs stay unchanged; separate `video_object_id` values identify instances
+   (the shared tracking field retains its existing name in volume mode).
+2. Move **PgDown** for increasing indices or **PgUp** for decreasing indices.
+   **Space / Propagate slice** predicts the current slice only. Inspect, edit,
+   and **Save**. Existing annotations require replacement confirmation;
+   unrelated objects remain. A structure may disappear or split between slices.
+3. **Use correction** adds the current edited slice as a reference for subsequent
+   predictions in the selected direction, retaining the initial reference plus
+   up to four recent corrections. Every currently tracked object needs nonempty
+   annotation parts on a correction slice. If the object set changes or a target
+   disappears, stop and select/reinitialize the remaining objects as appropriate.
+4. To propagate the other way, **Stop tracking**, return to a suitable annotated
+   reference, change direction, select the objects, and **Track selected** again.
+   Directions use separate initialized sessions; memory is not shared between them.
+
+Applying a new volume **Window centre/width**, opening another volume, leaving
+volume mode, or Undo stops tracking. A failed window update preserves the prior
+valid tracker; a changed source scan blocks reuse. Brightness/contrast/invert
+are canvas-only previews and do not change the cached model-input window.
+Save/reopen retains polygons and provenance, but model memory must be initialized
+again. Volume geometry, hole/small-region checks and export rules remain the same.
+
+Slice JSON stores `volume_tracking` separately from `medical_volume`, including
+the experimental STCN source, source hash, direction, reference slice indices and
+input display range. The export sidecar includes this per-slice provenance as
+`slice_tracking_provenance`. These records do not certify accuracy or mark a
+slice reviewed. Try the [propagation checklist](docs/MANUAL_TEST_VOLUME_PROPAGATION.md)
+on synthetic data first.
 
 ## Video annotation
 

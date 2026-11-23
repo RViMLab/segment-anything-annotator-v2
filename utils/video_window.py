@@ -13,7 +13,7 @@ from utils.annotation_document import shape_to_annotation
 from utils.class_name_consistency import numeric_group_id
 from utils.geometry_operations import exact_mask_polygons
 from utils.video_panel import TrackingProgressDialog, VideoPanel
-from utils.video_tracking import StcnTracker, VideoTrackingError, discover_sequences
+from utils.video_tracking import DirectionalSliceTracker, StcnTracker, VideoTrackingError, discover_sequences
 
 
 class VideoWindowMixin:
@@ -26,6 +26,39 @@ class VideoWindowMixin:
         self.max_size_stcn = int(max_size)
         self._video_frame_metadata = None
         self._video_metadata_history = {}
+        self._video_tracker_scope = None
+        self._tracking_backup_metadata = {}
+        self._tracking_undo_metadata = None
+
+    def _trackingAvailable(self):
+        return bool((self.video_mode and self.video_sequences) or getattr(self, "volume", None) is not None)
+
+    def _trackingScope(self):
+        volume = getattr(self, "volume", None)
+        if volume is None:
+            return None
+        volume.check_source()
+        return (volume.source_hash, 2, volume.low, volume.high, self.video_panel.direction.currentData())
+
+    def _trackingFrameMetadata(self, propagated=False):
+        tracker = self.video_tracker
+        references = list(getattr(tracker, "reference_indices", [tracker.reference_index]))
+        previous = self._video_frame_metadata or {}
+        volume = getattr(self, "volume", None)
+        if volume is not None:
+            return {**previous, "source": "stcn_propagated_slice" if propagated else "manual_keyframe",
+                    "backend": "stcn", "experimental": True,
+                    "source_sha256": volume.source_hash, "slice_axis": 2,
+                    "direction": self.video_panel.direction.currentData(),
+                    "display_range": [volume.low, volume.high],
+                    "reference_slice_index": tracker.reference_index, "reference_slice_indices": references}
+        result = {**previous, "sequence": self.video_sequences[self.video_sequence_index].name,
+                  "source": "stcn_propagated_frame" if propagated else "manual_keyframe",
+                  "reference_frame": self.video_sequences[self.video_sequence_index].frames[tracker.reference_index].name,
+                  "reference_frame_index": tracker.reference_index, "reference_frame_indices": references}
+        if propagated:
+            result["backend"] = "stcn"
+        return result
 
     def _setupVideoPanel(self, layout):
         self.video_panel = VideoPanel(self.actions.propagateVideo, self)
@@ -118,6 +151,8 @@ class VideoWindowMixin:
         self.video_mode = False
         self.video_sequences = ()
         self._video_frame_metadata = None
+        self._tracking_backup_metadata = {}
+        self._tracking_undo_metadata = None
         self.video_panel.hide()
         self.video_panel.track.setEnabled(False)
         self.button_last.setText("Previous image (PgUp)")
@@ -127,12 +162,14 @@ class VideoWindowMixin:
     def stopVideoTracking(self):
         self.video_tracker = None
         self.video_objects = []
+        self._video_tracker_scope = None
         if hasattr(self, "video_panel"):
             self.video_panel.set_running(False, "Select annotated objects, choose a backend, then Track selected.")
             self.actions.propagateVideo.setEnabled(False)
 
     def _videoError(self, error):
-        QtWidgets.QMessageBox.warning(self, "Video tracking not applied", str(error) + "\n\nAnnotations were not changed.")
+        title = "Slice propagation not applied" if getattr(self, "volume", None) is not None else "Video tracking not applied"
+        QtWidgets.QMessageBox.warning(self, title, str(error) + "\n\nAnnotations were not changed.")
 
     def _runVideoTask(self, message, operation):
         # Native inference runs off the UI thread. Keep controls modal until it
@@ -163,7 +200,10 @@ class VideoWindowMixin:
     def _makeVideoTracker(self):
         import torch
         device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-        return StcnTracker(Path(__file__).resolve().parents[1], self.max_size_stcn, device)
+        tracker = StcnTracker(Path(__file__).resolve().parents[1], self.max_size_stcn, device)
+        if getattr(self, "volume", None) is not None:
+            return DirectionalSliceTracker(tracker, self.img_len, self.video_panel.direction.currentData())
+        return tracker
 
     @staticmethod
     def _trackingMetadata(shape):
@@ -181,18 +221,47 @@ class VideoWindowMixin:
         self._video_metadata_history[self._videoStateKey()] = deepcopy(self._video_frame_metadata)
         if len(self._video_metadata_history) > 64:
             self._video_metadata_history.pop(next(iter(self._video_metadata_history)))
+        # Distinguish identical geometry snapshots (e.g. an empty prediction)
+        # whose provenance differs. Retain only snapshots still in Canvas Undo.
+        previous = self._tracking_backup_metadata
+        self._tracking_backup_metadata = {
+            id(backup): previous.get(id(backup), (backup, deepcopy(self._video_frame_metadata)))
+            for backup in self.canvas.shapesBackups}
+        if self.canvas.shapesBackups:
+            latest = self.canvas.shapesBackups[-1]
+            self._tracking_backup_metadata[id(latest)] = (latest, deepcopy(self._video_frame_metadata))
+
+    def _prepareTrackingUndo(self):
+        self._tracking_undo_metadata = None
+        if self._trackingAvailable() and self.canvas.isShapeRestorable:
+            self._rememberVideoMetadata()
+            target = self.canvas.shapesBackups[-2]
+            self._tracking_undo_metadata = (True, deepcopy(self._tracking_backup_metadata[id(target)][1]))
 
     def _canUpdateVideoMetadata(self):
+        try:
+            scope = self._trackingScope()
+            if self.video_tracker is not None and self._video_tracker_scope != scope:
+                raise VideoTrackingError("The volume, intensity window or direction changed. Initialize tracking again.")
+        except Exception as error:
+            self.stopVideoTracking()
+            self._videoError(error)
+            return False
         if self._video_frame_metadata is not None and not isinstance(self._video_frame_metadata, dict):
-            self._videoError("Existing video_annotation metadata is not a tracking record. It was not overwritten.")
+            field = "volume_tracking" if getattr(self, "volume", None) is not None else "video_annotation"
+            self._videoError(f"Existing {field} metadata is not a tracking record. It was not overwritten.")
             return False
         return True
 
     def _restoreVideoMetadataAfterUndo(self):
-        if self.video_mode:
+        if self._trackingAvailable():
             key = self._videoStateKey()
-            if key in self._video_metadata_history:
+            if self._tracking_undo_metadata is not None:
+                self._video_frame_metadata = self._tracking_undo_metadata[1]
+            elif key in self._video_metadata_history:
                 self._video_frame_metadata = deepcopy(self._video_metadata_history[key])
+            self._tracking_undo_metadata = None
+            self._rememberVideoMetadata()
             if self.video_tracker is not None:
                 self.stopVideoTracking()
                 self.video_panel.status.setText("Tracking stopped after Undo. Select objects and Track selected to restart.")
@@ -209,7 +278,7 @@ class VideoWindowMixin:
             self.canvas.shapesBackups[-1] = [shape.copy() for shape in self.canvas.shapes]
 
     def trackVideoSelection(self):
-        if not self.video_mode or not self.video_sequences or self.review_config is not None:
+        if not self._trackingAvailable() or self.review_config is not None:
             return False
         if not self._canUpdateVideoMetadata():
             return False
@@ -261,11 +330,14 @@ class VideoWindowMixin:
             objects.append({"id": identity, "template": template, "parts": parts})
             masks.append(mask)
         try:
+            scope = self._trackingScope()
             def start():
                 tracker = self._makeVideoTracker()
                 tracker.start(self.current_img, masks, self.current_img_index)
                 return tracker
             tracker = self._runVideoTask("Starting selected-object tracking…", start)
+            if scope != self._trackingScope():
+                raise VideoTrackingError("The tracking input changed during initialization. Initialize again.")
         except Exception as error:
             self._videoError(error)
             return False
@@ -273,19 +345,19 @@ class VideoWindowMixin:
         # ordinary extra JSON field. No metadata is committed on startup failure.
         self._rememberVideoMetadata()
         self.canvas.storeShapes()
+        self._rememberVideoMetadata()
         for obj in objects:
             for shape in obj.pop("parts"):
                 shape.other_data["video_object_id"] = obj["id"]
         self.canvas.storeShapes()
         self.video_tracker, self.video_objects = tracker, objects
-        self._video_frame_metadata = {**(self._video_frame_metadata or {}),
-                                      "sequence": self.video_sequences[self.video_sequence_index].name,
-                                      "source": "manual_keyframe", "reference_frame": Path(self.current_img).name,
-                                      "reference_frame_index": self.current_img_index,
-                                      "reference_frame_indices": list(getattr(tracker, "reference_indices",
-                                                                              [self.current_img_index]))}
+        self._video_tracker_scope = scope
+        self._video_frame_metadata = self._trackingFrameMetadata()
         self._rememberVideoMetadata()
-        self.video_panel.set_running(True, f"Tracking {len(objects)} object(s). PgDown → Propagate frame, or edit → Use correction.")
+        reverse = getattr(self, "volume", None) is not None and self.video_panel.direction.currentData() == -1
+        step = "PgUp" if reverse else "PgDown"
+        unit = "slice" if getattr(self, "volume", None) is not None else "frame"
+        self.video_panel.set_running(True, f"Tracking {len(objects)} object(s). {step} → Propagate {unit}, or edit → Use correction.")
         self.actions.propagateVideo.setEnabled(True)
         self.setDirty()
         return True
@@ -316,36 +388,35 @@ class VideoWindowMixin:
         except Exception as error:
             self._videoError(error)
             return False
+        if not self._canUpdateVideoMetadata():
+            return False
         self.video_objects = updated
         self._rememberVideoMetadata()
-        self._video_frame_metadata = {**(self._video_frame_metadata or {}),
-                                      "sequence": self.video_sequences[self.video_sequence_index].name,
-                                      "source": "manual_keyframe", "reference_frame": Path(self.current_img).name,
-                                      "reference_frame_index": self.current_img_index,
-                                      "reference_frame_indices": list(getattr(self.video_tracker, "reference_indices",
-                                                                              [self.current_img_index]))}
+        self._video_frame_metadata = self._trackingFrameMetadata()
         self._rememberVideoMetadata()
         self.setDirty()
-        self.video_panel.status.setText("Correction is now the tracking reference. Navigate forward and propagate.")
+        self.video_panel.status.setText("Correction is now the tracking reference. Navigate in the selected direction and propagate.")
         return True
 
     def propagateVideoFrame(self):
-        if self.review_config is not None or not self.video_mode or self.video_tracker is None:
+        if self.review_config is not None or not self._trackingAvailable() or self.video_tracker is None:
             return False
         if not self._canUpdateVideoMetadata():
             return False
         existing = list(self.labelList)
+        unit = "slice" if getattr(self, "volume", None) is not None else "frame"
         if existing and QtWidgets.QMessageBox.question(
-            self, "Propagate to this frame?",
-            "Replace tracked annotations, including their labels and metadata, on this frame? "
+            self, f"Propagate to this {unit}?",
+            f"Replace tracked annotations, including their labels and metadata, on this {unit}? "
             "Use correction first to retain deliberate edits as the reference. "
             "Other polygons will be kept; check for duplicates.",
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel, QtWidgets.QMessageBox.Cancel,
         ) != QtWidgets.QMessageBox.Yes:
             return False
         try:
-            masks = self._runVideoTask("Propagating to this frame…",
-                                      lambda: self.video_tracker.predict(self.current_img, self.current_img_index))
+            tracker = self.video_tracker
+            masks = self._runVideoTask(f"Propagating to this {unit}…",
+                                      lambda: tracker.predict(self.current_img, self.current_img_index))
             if len(masks) != len(self.video_objects):
                 raise VideoTrackingError("Tracking returned an unexpected number of objects.")
             replacements = {}
@@ -360,6 +431,11 @@ class VideoWindowMixin:
                     shape.close()
                     parts.append(shape)
                 replacements[obj["id"]] = parts
+            if not self._canUpdateVideoMetadata():
+                discard = getattr(tracker, "discard_prediction", None)
+                if discard:
+                    discard()
+                return False
         except Exception as error:
             discard = getattr(self.video_tracker, "discard_prediction", None)
             if discard:
@@ -386,6 +462,7 @@ class VideoWindowMixin:
                     visibility[part] = QtCore.Qt.Checked
         self._rememberVideoMetadata()
         self.canvas.storeShapes()
+        self._rememberVideoMetadata()
         self.canvas.deSelectShape()
         self._noSelectionSlot = True
         try:
@@ -396,14 +473,7 @@ class VideoWindowMixin:
         finally:
             self._noSelectionSlot = False
         self.canvas.loadShapes(ordered)
-        self._video_frame_metadata = {**(self._video_frame_metadata or {}),
-                                      "sequence": self.video_sequences[self.video_sequence_index].name,
-                                      "source": "stcn_propagated_frame", "backend": "stcn",
-                                      "reference_frame_indices": list(getattr(self.video_tracker, "reference_indices",
-                                                                              [self.video_tracker.reference_index])),
-                                      "reference_frame": self.video_sequences[self.video_sequence_index].frames[
-                                          self.video_tracker.reference_index].name,
-                                      "reference_frame_index": self.video_tracker.reference_index}
+        self._video_frame_metadata = self._trackingFrameMetadata(propagated=True)
         self._rememberVideoMetadata()
         commit = getattr(self.video_tracker, "commit_prediction", None)
         if commit:
@@ -414,8 +484,11 @@ class VideoWindowMixin:
         return True
 
     def _onVideoFrameLoaded(self):
-        if self.video_mode:
+        if self._trackingAvailable():
             self.actions.undo.setEnabled(self.canvas.isShapeRestorable)
-            self._video_frame_metadata = deepcopy((self._annotation_data or {}).get("video_annotation"))
+            key = "volume_tracking" if getattr(self, "volume", None) is not None else "video_annotation"
+            self._video_frame_metadata = deepcopy((self._annotation_data or {}).get(key))
             self._video_metadata_history = {}
+            self._tracking_backup_metadata = {}
+            self._tracking_undo_metadata = None
             self._rememberVideoMetadata()

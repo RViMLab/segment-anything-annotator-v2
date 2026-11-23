@@ -14,6 +14,57 @@ class VideoTrackingError(ValueError):
     pass
 
 
+class DirectionalSliceTracker:
+    """Map decreasing native slice indices to increasing backend frame indices.
+
+    A new wrapper/backend is initialized for each direction. Public reference
+    indices remain native voxel indices for persistence and UI messages.
+    """
+
+    def __init__(self, backend, slices, direction=1):
+        if direction not in (-1, 1) or slices < 1:
+            raise VideoTrackingError("Choose a valid slice direction and volume.")
+        self.backend, self.slices, self.direction = backend, int(slices), int(direction)
+
+    def _index(self, index):
+        if not 0 <= index < self.slices:
+            raise VideoTrackingError("Slice index is outside this volume.")
+        return int(index) if self.direction == 1 else self.slices - 1 - int(index)
+
+    @property
+    def reference_index(self):
+        value = self.backend.reference_index
+        return None if value is None else self._index(value)
+
+    @property
+    def reference_indices(self):
+        return [self._index(i) for i in getattr(self.backend, "reference_indices", [self.backend.reference_index])]
+
+    def start(self, image, masks, index):
+        return self.backend.start(image, masks, self._index(index))
+
+    def correct(self, image, masks, index):
+        callback = getattr(self.backend, "correct", self.backend.start)
+        return callback(image, masks, self._index(index))
+
+    def predict(self, image, index):
+        mapped = self._index(index)
+        if mapped <= self.backend.reference_index:
+            raise VideoTrackingError("Choose a slice beyond the reference in the selected direction, "
+                                     "or Stop tracking and initialize a new reference/direction.")
+        return self.backend.predict(image, mapped)
+
+    def commit_prediction(self):
+        callback = getattr(self.backend, "commit_prediction", None)
+        if callback:
+            callback()
+
+    def discard_prediction(self):
+        callback = getattr(self.backend, "discard_prediction", None)
+        if callback:
+            callback()
+
+
 @dataclass(frozen=True)
 class VideoSequence:
     name: str
