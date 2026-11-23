@@ -6,13 +6,22 @@ from qtpy import QtCore, QtGui, QtWidgets
 
 
 ACTION_GROUPS = (
-    ("Files and setup", ("imageDirectory", "saveDirectory", "save", "saveAs", "loadSAM", "classMapping")),
+    ("Files and setup", ("imageDirectory", "openVolume", "saveDirectory", "save", "saveAs", "loadSAM", "classMapping")),
     ("SAM prompts", ("createPointMode", "createRectangleMode", "createCircleMode", "promptSeg", "cleanPrompt")),
     ("Polygon editing", ("createMode", "editMode", "undoLastPoint", "undo", "delete", "reduce_point", "subtract", "merge")),
     ("Video tracking", ("propagateVideo",)),
 )
 
 TOPICS = (
+    ("How do I annotate a NIfTI medical volume?",
+     "Install requirements-volume.txt in your environment, then Open Volume or launch with --volume PATH. "
+     "Scalar 3D .nii/.nii.gz files use native axis-2 slices, without reorientation or resampling; the panel labels voxel axes. "
+     "PgUp/PgDown/J navigate slices. Use SAM/manual polygons and Save as usual. "
+     "Window centre/width change previews in source intensity units, leaving scan data intact. "
+     "Export NIfTI mask writes a native-grid segmentation and JSON mapping in a new bundle. "
+     "Mask value = group ID + 1, with zero background; original annotation group IDs stay unchanged. "
+     "Never-saved slices are zero-filled and listed as unannotated. DICOM, alternate planes, native volume review, "
+     "4D data and STCN propagation are not included in this first version."),
     ("Why can't I merge polygons?",
      "Merge requires matching labels, class/group IDs, flags, and other metadata. "
      "Draw-order checks also prevent changing the visible overlap class. Read the rejection message for the specific conflict. "

@@ -39,6 +39,8 @@ class VideoWindowMixin:
 
     def _frameAnnotationPath(self, image, sequence=None):
         folder = Path(self.current_output_dir)
+        if getattr(self, "volume", None) is not None:
+            folder /= self.volume.folder_name
         if self.video_mode and self.video_sequences:
             sequence = sequence or self.video_sequences[self.video_sequence_index]
             folder /= sequence.name
@@ -67,6 +69,7 @@ class VideoWindowMixin:
             return False
         if not self._canLeaveVideoFrame():
             return False
+        self.leaveVolumeMode()
         self.stopVideoTracking()
         self.video_mode = True
         self.video_sequences = sequences

@@ -28,6 +28,7 @@ from utils.class_name_consistency import ClassNameChecker, ConsistencyReport, nu
 from utils.class_mapping_dialog import ClassMappingDialog, MappedLabelDialog
 from utils.class_mapping import load_categories
 from utils.video_window import VideoWindowMixin
+from utils.volume_window import VolumeWindowMixin
 from utils.help_dialog import HelpDialog, decorate_shortcut_actions
 from utils.polygon_label_list import PolygonLabelListWidget
 from utils.download_model import download_model
@@ -60,7 +61,7 @@ from segment_anything import sam_model_registry, SamPredictor
 
 LABEL_COLORMAP = imgviz.label_colormap()
 
-class MainWindow(VideoWindowMixin, QMainWindow):
+class MainWindow(VolumeWindowMixin, VideoWindowMixin, QMainWindow):
 
     FIT_WINDOW, FIT_WIDTH, MANUAL_ZOOM = 0, 1, 2
 
@@ -398,6 +399,10 @@ class MainWindow(VideoWindowMixin, QMainWindow):
             self.tr("Video Directory"), self.clickVideoChoose, None, "objects",
             self.tr("Open extracted video frames in the current editor"), enabled=True,
         )
+        openVolume = action(
+            self.tr("Open Volume"), self.clickVolumeChoose, None, "objects",
+            self.tr("Open a scalar 3D NIfTI volume (.nii/.nii.gz)"), enabled=True,
+        )
         propagateVideo = action(
             self.tr("Propagate frame (Space)"), self.propagateVideoFrame, "Space", "objects",
             self.tr("Track the selected objects into this frame"), enabled=False,
@@ -644,6 +649,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
             categoryFile=categoryFile,
             classMapping=classMapping,
             videoDirectory=videoDirectory,
+            openVolume=openVolume,
             propagateVideo=propagateVideo,
             imageDirectory=imageDirectory,
             saveDirectory=saveDirectory,
@@ -697,6 +703,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         labels_layout = QtWidgets.QVBoxLayout(self.labels_widget)
         labels_layout.setContentsMargins(0, 0, 0, 0)
         labels_layout.setSpacing(0)
+        self._setupVolumePanel(labels_layout)
         self._setupVideoPanel(labels_layout)
         labels_layout.addWidget(visibility_widget)
         labels_layout.addWidget(self.labelList)
@@ -719,6 +726,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         self.toolbar.addAction(classMapping)
         self.toolbar.addAction(imageDirectory)
         self.toolbar.addAction(videoDirectory)
+        self.toolbar.addAction(openVolume)
         self.toolbar.addAction(saveDirectory)
         self.toolbar.addAction(self.showLabels)
         self.toolbar.addAction(LoadSAM)
@@ -784,6 +792,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         from review.storage import ReviewStorage
 
         self.leaveVideoMode()
+        self.leaveVolumeMode()
         self.review_validation_report = validation_report
         self.review_config = validation_report.config
         self.review_pairs = list(validation_report.pairs)
@@ -817,6 +826,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         )
         self.actions.imageDirectory.setEnabled(False)
         self.actions.videoDirectory.setEnabled(False)
+        self.actions.openVolume.setEnabled(False)
         self.actions.saveDirectory.setEnabled(False)
         self.button_last.setText(self.tr("Previous image (PgUp)"))
         self.button_next.setText(self.tr("Next image (PgDown)"))
@@ -1472,6 +1482,12 @@ class MainWindow(VideoWindowMixin, QMainWindow):
                     "sequence": self.video_sequences[self.video_sequence_index].name,
                     "source": "manual_keyframe",
                 })
+        if getattr(self, "volume", None) is not None:
+            save_data["medical_volume"] = self.volume.metadata(self.current_img_index)
+            # Cached paths and displayed pixels can change with the window or
+            # session. Embedded images keep slice JSON independently readable.
+            save_data["imagePath"] = self.current_img
+            save_data["imageData"] = imageData
         atomic_write_annotation(
             filename, json.dumps(save_data).encode("utf-8"),
             repair_readonly=self.review_config is not None,
@@ -1636,6 +1652,8 @@ class MainWindow(VideoWindowMixin, QMainWindow):
     def loadImg(self):
         if not self.current_img:
             return False
+        if getattr(self, "volume", None) is not None and not self._validateVolumeSlice(self.current_img):
+            return False
         requested_image = self.current_img
         image = cv2.imread(requested_image)
         pixmap = QPixmap(requested_image)
@@ -1709,6 +1727,8 @@ class MainWindow(VideoWindowMixin, QMainWindow):
             self.applyBrightnessContrast()
         self._loaded_image = (self.current_img, self.current_img_index)
         self._onVideoFrameLoaded()
+        if getattr(self, "volume", None) is not None:
+            self._volumeSliceLoaded()
         return True
 
 
@@ -1724,6 +1744,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
             return
         if not self._canLeaveVideoFrame():
             return
+        self.leaveVolumeMode()
         self.leaveVideoMode()
         #self.img_list = glob.glob(directory + '/*.{jpg,png,JPG,PNG}')
         self.img_list = images
@@ -2284,6 +2305,7 @@ class MainWindow(VideoWindowMixin, QMainWindow):
         if executor is not None:
             executor.shutdown(wait=False, cancel_futures=True)
             self._class_name_executor = None
+        self.leaveVolumeMode()
         event.accept()
 
     def resizeEvent(self, event):
@@ -3097,6 +3119,7 @@ def get_parser():
     )
     parser.add_argument("--video", action="store_true", help="Show optional video tracking controls in this GUI.")
     parser.add_argument("--video-directory", default="", help="Open an extracted-frame sequence or its parent folder.")
+    parser.add_argument("--volume", default="", metavar="PATH", help="Open a scalar 3D .nii/.nii.gz volume (optional dependencies).")
     parser.add_argument("--max_size_STCN", "--max-size-stcn", dest="max_size_stcn", type=int, default=600,
                         help="Maximum STCN frame dimension; default 600. STCN remains optional.")
     parser.add_argument(
@@ -3131,6 +3154,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.review and (args.video or args.video_directory):
         parser.error("Review is frame-by-frame; use --review without --video/--video-directory.")
+    if args.volume and (args.review or args.video or args.video_directory):
+        parser.error("Use --volume separately from --review and --video/--video-directory.")
     global_h, global_w = [
         int(i) for i in args.app_resolution.split(',')
     ]
@@ -3171,6 +3196,8 @@ def main(argv=None):
     main.show()
     if args.video_directory:
         QtCore.QTimer.singleShot(0, lambda: main.openVideoDirectory(args.video_directory))
+    if args.volume:
+        QtCore.QTimer.singleShot(0, lambda: main.openVolume(args.volume))
     return app.exec_()
 
 
