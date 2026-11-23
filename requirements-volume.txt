@@ -1,0 +1,2 @@
+# Optional scalar 3D NIfTI import/export. Install the base app first.
+nibabel>=5.2,<6

@@ -33,6 +33,7 @@ save annotations in Labelme-compatible JSON files.
 - Original/reviewed JSON, polygon geometry, and raster-mask comparison
 - Duplicate-safe CSV review export
 - Optional video tracking in the same GUI, with sequence-safe outputs and review
+- Optional native-grid 3D NIfTI slice annotation and aligned segmentation export
 - CUDA, Apple MPS, and CPU device selection
 
 ## Quick start
@@ -636,6 +637,57 @@ in video annotation, it propagates the current frame.
 | `Alt+S` | Save as |
 | `Ctrl` + mouse wheel | Zoom |
 | `Esc` | Cancel an active merge or subtract operation |
+
+## NIfTI medical volumes (optional)
+
+For **scalar 3D `.nii` / `.nii.gz`** volumes, install the optional reader in your
+existing environment (Python 3.10 or newer), then use **Open Volume** in the
+toolbar, or launch directly:
+
+```bash
+python -m pip install -r requirements-volume.txt
+python annotator.py --volume path/to/scan.nii.gz --app_resolution 1000,1600 --model_type vit_b --keep_input_size True --max_size 720
+```
+
+Choose **Save Directory**, then annotate with the existing SAM/manual polygon,
+class mapping, editing, visibility, Undo and Save controls. **PgUp/PgDown/J**
+navigate slices. The volume panel labels the native slice axis (axis 2), voxel
+orientation codes, and current index. This first implementation does **not**
+rotate, resample, or provide axial/coronal/sagittal plane switching; stored axis
+2 is not necessarily an anatomical axial view.
+
+**Window centre/width** operate in source intensity units. Apply the window to
+update all slice previews consistently; pending edits save first. Original
+intensities and scan files stay untouched. Temporary 8-bit PNGs let the existing
+editor and SAM work with slices; compressed scans are unpacked once into
+temporary storage. Allow disk space for an uncompressed scan and slice previews.
+These temporary files are cleaned when leaving volume mode or closing normally.
+Volumes are limited to 256 million voxels and 10,000 slices in this first version.
+
+Editable annotations save to
+`<output>/<volume-name>_<source-hash>/slice_00000.json`, including embedded
+preview pixels, source identity, native affine and pixel-to-voxel mapping:
+display pixel `(x,y)` maps to voxel `(x,y,slice_index)`. Reopening the same source
+file and output folder reloads those annotations; same-named different inputs
+have separate folders. Save As outside this folder does not add that copy to
+the volume export.
+
+**Export NIfTI mask** writes a new bundle containing `segmentation.nii.gz` and
+`segmentation.json`, preserving native shape, affine, qform/sform and spatial
+units. **Mask value = class/group ID + 1**, reserving zero for background. Class
+IDs in slice JSON do not change; the sidecar records the mapping and label names.
+This also supports class ID zero. Overlaps follow the saved list order (last
+polygon wins), including hidden polygons. Valid polygon geometry and
+nonnegative integer class IDs are required; invalid records block export.
+
+Never-saved slices are zero-filled but explicitly listed as **unannotated**, not
+confirmed background; the GUI asks before such an export. Saving a deliberately
+empty slice after deleting its annotations records a reviewed-empty slice.
+This is manual completion tracking, not an annotation-review decision.
+No native volume review, DICOM import, 4D/vector data, 3D rendering, or STCN
+slice propagation is included. `--volume` cannot be combined with `--review` or
+`--video`. Optional dependencies are not needed for ordinary image/video work.
+Use the [synthetic-data checklist](docs/MANUAL_TEST_NIFTI.md) before real datasets.
 
 ## Video annotation
 

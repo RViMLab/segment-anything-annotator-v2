@@ -200,6 +200,20 @@ python -m pip install -r requirements.txt
 If Git reports local changes or refuses the update, keep your work and ask for
 help; do not reset or delete files to force it. Then use the launch command above.
 
+## Optional NIfTI medical volumes
+
+For scalar 3D `.nii` / `.nii.gz` scans, use Python 3.10 or newer and run from the
+app folder with your environment active:
+
+```bash
+python -m pip install -r requirements-volume.txt
+python annotator.py --volume path/to/scan.nii.gz --app_resolution 1000,1600 --model_type vit_b --keep_input_size True --max_size 720
+```
+
+Or launch normally and click **Open Volume**. See the
+[volume workflow and export mapping](README.md#nifti-medical-volumes-optional)
+before exporting masks. DICOM and slice propagation are not included yet.
+
 ## Quick get started
 
 1. Choose **Image Directory**, then **Save Directory** for your JSON annotations.
