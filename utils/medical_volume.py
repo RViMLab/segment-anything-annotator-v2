@@ -21,6 +21,12 @@ class VolumeError(ValueError):
 class NiftiVolume:
     """Never resample/reorient the source; displayed (x,y) maps to voxel (x,y,k)."""
 
+    format_name = "NIfTI"
+
+    @property
+    def display_name(self):
+        return self.path.name
+
     def __init__(self, filename):
         try:
             import nibabel as nib
@@ -107,6 +113,8 @@ class NiftiVolume:
             for index in range(self.shape[2]):
                 values = np.nan_to_num(self.slice(index), nan=low, posinf=high, neginf=low)
                 display = np.rint(np.clip((values - low) / (high - low), 0, 1) * 255).astype(np.uint8)
+                if getattr(self, "display_inverted", False):
+                    display = 255 - display
                 path = Path(cache.name) / f"slice_{index:05}.png"
                 Image.fromarray(display.T).save(path)
                 paths.append(str(path))
@@ -151,6 +159,9 @@ class NiftiVolume:
             raise VolumeError(f"slice_{index:05}.json has incorrect native image dimensions.")
         if not isinstance(document.get("shapes"), list):
             raise VolumeError(f"slice_{index:05}.json has no valid shapes list.")
+
+    def export_metadata(self):
+        return self.metadata(0)
 
     def export(self, annotation_directory, destination):
         """Publish a new bundle only after mask AND provenance have been written."""
@@ -197,7 +208,7 @@ class NiftiVolume:
         result.set_qform(self.image.get_qform(), code=int(self.image.header["qform_code"]))
         result.set_sform(self.image.get_sform(), code=int(self.image.header["sform_code"]))
         mapping = {
-            "version": 1, "source": self.metadata(0), "background_value": 0,
+            "version": 1, "source": self.export_metadata(), "background_value": 0,
             "value_rule": "mask_value = group_id + 1; class/group IDs in slice JSON are unchanged",
             "classes": [{"mask_value": group + 1, "group_id": group, "labels": sorted(names)}
                         for group, names in sorted(classes.items())],

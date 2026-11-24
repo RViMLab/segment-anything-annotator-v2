@@ -1,0 +1,3 @@
+# Optional classic CT/MR series import. Install the base app first.
+-r requirements-volume.txt
+pydicom>=3.0,<4

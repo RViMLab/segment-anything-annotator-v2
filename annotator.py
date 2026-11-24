@@ -403,6 +403,10 @@ class MainWindow(VolumeWindowMixin, VideoWindowMixin, QMainWindow):
             self.tr("Open Volume"), self.clickVolumeChoose, None, "objects",
             self.tr("Open a scalar 3D NIfTI volume (.nii/.nii.gz)"), enabled=True,
         )
+        openDicom = action(
+            self.tr("Open DICOM"), self.clickDicomChoose, None, "objects",
+            self.tr("Open a CT/MRI DICOM slice folder and select a series"), enabled=True,
+        )
         propagateVideo = action(
             self.tr("Propagate frame (Space)"), self.propagateVideoFrame, "Space", "objects",
             self.tr("Track the selected objects into this frame"), enabled=False,
@@ -650,6 +654,7 @@ class MainWindow(VolumeWindowMixin, VideoWindowMixin, QMainWindow):
             classMapping=classMapping,
             videoDirectory=videoDirectory,
             openVolume=openVolume,
+            openDicom=openDicom,
             propagateVideo=propagateVideo,
             imageDirectory=imageDirectory,
             saveDirectory=saveDirectory,
@@ -727,6 +732,7 @@ class MainWindow(VolumeWindowMixin, VideoWindowMixin, QMainWindow):
         self.toolbar.addAction(imageDirectory)
         self.toolbar.addAction(videoDirectory)
         self.toolbar.addAction(openVolume)
+        self.toolbar.addAction(openDicom)
         self.toolbar.addAction(saveDirectory)
         self.toolbar.addAction(self.showLabels)
         self.toolbar.addAction(LoadSAM)
@@ -827,6 +833,7 @@ class MainWindow(VolumeWindowMixin, VideoWindowMixin, QMainWindow):
         self.actions.imageDirectory.setEnabled(False)
         self.actions.videoDirectory.setEnabled(False)
         self.actions.openVolume.setEnabled(False)
+        self.actions.openDicom.setEnabled(False)
         self.actions.saveDirectory.setEnabled(False)
         self.button_last.setText(self.tr("Previous image (PgUp)"))
         self.button_next.setText(self.tr("Next image (PgDown)"))
@@ -3123,6 +3130,8 @@ def get_parser():
     parser.add_argument("--video", action="store_true", help="Show optional video tracking controls in this GUI.")
     parser.add_argument("--video-directory", default="", help="Open an extracted-frame sequence or its parent folder.")
     parser.add_argument("--volume", default="", metavar="PATH", help="Open a scalar 3D .nii/.nii.gz volume (optional dependencies).")
+    parser.add_argument("--dicom-directory", default="", metavar="FOLDER", help="Open a CT/MRI DICOM slice folder (optional dependencies).")
+    parser.add_argument("--dicom-series", default="", metavar="UID", help="Select a DICOM series UID; requires --dicom-directory.")
     parser.add_argument("--max_size_STCN", "--max-size-stcn", dest="max_size_stcn", type=int, default=600,
                         help="Maximum STCN frame dimension; default 600. STCN remains optional.")
     parser.add_argument(
@@ -3159,6 +3168,10 @@ def main(argv=None):
         parser.error("Review is frame-by-frame; use --review without --video/--video-directory.")
     if args.volume and (args.review or args.video or args.video_directory):
         parser.error("Use --volume separately from --review and --video/--video-directory.")
+    if args.dicom_directory and (args.volume or args.review or args.video or args.video_directory):
+        parser.error("Use --dicom-directory separately from --volume, --review and video modes.")
+    if args.dicom_series and not args.dicom_directory:
+        parser.error("--dicom-series requires --dicom-directory.")
     global_h, global_w = [
         int(i) for i in args.app_resolution.split(',')
     ]
@@ -3201,6 +3214,8 @@ def main(argv=None):
         QtCore.QTimer.singleShot(0, lambda: main.openVideoDirectory(args.video_directory))
     if args.volume:
         QtCore.QTimer.singleShot(0, lambda: main.openVolume(args.volume))
+    if args.dicom_directory:
+        QtCore.QTimer.singleShot(0, lambda: main.openDicomDirectory(args.dicom_directory, args.dicom_series))
     return app.exec_()
 
 
