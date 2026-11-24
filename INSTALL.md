@@ -202,6 +202,10 @@ help; do not reset or delete files to force it. Then use the launch command abov
 
 ## Optional NIfTI medical volumes
 
+For real datasets, follow
+[Annotating 3D volumes (NIfTI/DICOM) — EXPERIMENTAL](docs/MEDICAL_VOLUMES.md)
+for source preparation, annotation, propagation, export and resuming work.
+
 For scalar 3D `.nii` / `.nii.gz` scans, use Python 3.10 or newer and run from the
 app folder with your environment active:
 

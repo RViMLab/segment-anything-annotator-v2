@@ -39,6 +39,9 @@ save annotations in Labelme-compatible JSON files.
 
 ## Quick start
 
+> **3D medical volumes — EXPERIMENTAL:** For real scan setup, annotation,
+> propagation and export, see [Annotating 3D volumes (NIfTI/DICOM)](docs/MEDICAL_VOLUMES.md).
+
 New to GitHub or Python? Follow the [beginner installation guide](INSTALL.md)
 for Windows, macOS, and Linux, including prerequisites, cloning, launching,
 updates, and your first annotation.
@@ -641,6 +644,10 @@ in video annotation, it propagates the current frame.
 
 ## NIfTI medical volumes (optional)
 
+For a complete workflow with your own scans, read
+[Annotating 3D volumes (NIfTI/DICOM) — EXPERIMENTAL](docs/MEDICAL_VOLUMES.md).
+The sections below provide format and implementation details.
+
 For **scalar 3D `.nii` / `.nii.gz`** volumes, install the optional reader in your
 existing environment (Python 3.10 or newer), then use **Open Volume** in the
 toolbar, or launch directly:
@@ -683,7 +690,7 @@ nonnegative integer class IDs are required; invalid records block export.
 
 Never-saved slices are zero-filled but explicitly listed as **unannotated**, not
 confirmed background; the GUI asks before such an export. Saving a deliberately
-empty slice after deleting its annotations records a reviewed-empty slice.
+empty slice after deleting its annotations records a saved empty slice.
 This is manual completion tracking, not an annotation-review decision.
 No native volume review, 4D/vector data or 3D rendering is included.
 For classic CT/MRI DICOM slice folders, use the [DICOM importer](#dicom-ctmri-folders-optional).
