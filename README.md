@@ -366,8 +366,8 @@ changed relevant names are checked again. Large scans run in a cancellable
 worker and cache names/IDs only. Unreadable annotations are reported explicitly.
 
 This is a warning, not an enforced class-name mapping or automatic labeling.
-The synthetic-data generator and complete branch-by-branch test checklist are
-in [docs/MANUAL_TEST_PENDING.md](docs/MANUAL_TEST_PENDING.md).
+For consistent labels across sessions, use the
+[dataset class-mapping workflow](#keep-names-and-ids-consistent-throughout-a-dataset).
 
 ## Annotation review mode
 
@@ -696,7 +696,8 @@ No native volume review, 4D/vector data or 3D rendering is included.
 For classic CT/MRI DICOM slice folders, use the [DICOM importer](#dicom-ctmri-folders-optional).
 `--volume` cannot be combined with `--review` or
 `--video`. Optional dependencies are not needed for ordinary image/video work.
-Use the [synthetic-data checklist](docs/MANUAL_TEST_NIFTI.md) before real datasets.
+Follow the [medical-volume user guide](docs/MEDICAL_VOLUMES.md) for setup,
+annotation, export and alignment checks.
 
 ### Experimental STCN slice propagation
 
@@ -734,8 +735,8 @@ Slice JSON stores `volume_tracking` separately from `medical_volume`, including
 the experimental STCN source, source hash, direction, reference slice indices and
 input display range. The export sidecar includes this per-slice provenance as
 `slice_tracking_provenance`. These records do not certify accuracy or mark a
-slice reviewed. Try the [propagation checklist](docs/MANUAL_TEST_VOLUME_PROPAGATION.md)
-on synthetic data first.
+slice reviewed. See the [medical-volume user guide](docs/MEDICAL_VOLUMES.md#5-optional-stcn-propagation--experimental)
+for the propagation workflow and its limitations.
 
 ## DICOM CT/MRI folders (optional)
 
@@ -788,7 +789,8 @@ headers are not copied into these outputs. This does not anonymize the originals
 There is **no DICOM SEG or RTSTRUCT export**, native volume review, enhanced or
 multiframe import, Siemens mosaic support, or compressed-pixel decoding in this
 first importer. Decompress a copy through your DICOM software if needed.
-Try the [synthetic CT/MR checklist](docs/MANUAL_TEST_DICOM.md) first. The geometry
+Follow the [medical-volume user guide](docs/MEDICAL_VOLUMES.md) for real CT/MRI
+datasets. The geometry
 and modality conventions follow [NiBabel's DICOM geometry reference](https://nipy.org/nibabel/dicom/dicom_orientation.html)
 and [pydicom's modality transform](https://pydicom.github.io/pydicom/stable/reference/generated/pydicom.pixels.apply_modality_lut.html).
 
