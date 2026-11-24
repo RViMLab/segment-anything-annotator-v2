@@ -213,7 +213,18 @@ python annotator.py --volume path/to/scan.nii.gz --app_resolution 1000,1600 --mo
 Or launch normally and click **Open Volume**. See the
 [volume workflow and export mapping](README.md#nifti-medical-volumes-optional)
 before exporting masks. Optional experimental slice propagation also needs the
-[STCN prerequisites](README.md#optional-tracking-prerequisites). DICOM is not included yet.
+[STCN prerequisites](README.md#optional-tracking-prerequisites).
+
+For a classic uncompressed CT/MRI DICOM slice folder, install the DICOM reader
+instead (it includes the NIfTI reader):
+
+```bash
+python -m pip install -r requirements-dicom.txt
+python annotator.py --dicom-directory path/to/dicom-folder --app_resolution 1000,1600 --model_type vit_b --keep_input_size True --max_size 720
+```
+
+Or click **Open DICOM** and choose a series. See the
+[supported DICOM scope and workflow](README.md#dicom-ctmri-folders-optional).
 
 ## Quick get started
 

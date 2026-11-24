@@ -6,7 +6,7 @@ from qtpy import QtCore, QtGui, QtWidgets
 
 
 ACTION_GROUPS = (
-    ("Files and setup", ("imageDirectory", "openVolume", "saveDirectory", "save", "saveAs", "loadSAM", "classMapping")),
+    ("Files and setup", ("imageDirectory", "openVolume", "openDicom", "saveDirectory", "save", "saveAs", "loadSAM", "classMapping")),
     ("SAM prompts", ("createPointMode", "createRectangleMode", "createCircleMode", "promptSeg", "cleanPrompt")),
     ("Polygon editing", ("createMode", "editMode", "undoLastPoint", "undo", "delete", "reduce_point", "subtract", "merge")),
     ("Video tracking", ("propagateVideo",)),
@@ -20,8 +20,18 @@ TOPICS = (
      "Window centre/width change previews in source intensity units, leaving scan data intact. "
      "Export NIfTI mask writes a native-grid segmentation and JSON mapping in a new bundle. "
      "Mask value = group ID + 1, with zero background; original annotation group IDs stay unchanged. "
-     "Never-saved slices are zero-filled and listed as unannotated. DICOM, alternate planes, native volume review "
-     "and 4D data are not included."),
+     "Never-saved slices are zero-filled and listed as unannotated. DICOM has its own Open DICOM action. "
+     "Alternate planes, native volume review and 4D data are not included."),
+    ("How do I open a CT/MRI DICOM slice folder?",
+     "Install requirements-dicom.txt, then Open DICOM or --dicom-directory FOLDER. Select a series if several exist. "
+     "The first importer supports classic uncompressed single-frame grayscale CT/MR Part-10 files, not enhanced, "
+     "multiframe, mosaic or irregular stacks. Slices are sorted by patient-space position, not filenames. "
+     "Use the regular volume annotation, window, save and experimental STCN controls. Export is NIfTI plus a mapping "
+     "sidecar, not DICOM SEG/RTSTRUCT. Geometry is preserved with DICOM LPS-to-NIfTI RAS coordinates. "
+     "Modality rescale/LUT is applied; window controls use rescaled units rather than stored presentation presets. "
+     "Source files stay unchanged. Outputs keep series/slice UIDs, without copying patient demographics or private headers. "
+     "Choose another series or split the acquisition when an error reports mixed planes or duplicate positions. "
+     "Compressed pixel data needs an uncompressed copy for this version."),
     ("How do I propagate objects through NIfTI slices with STCN?",
      "Install the optional STCN code/checkpoint from the README. This use is experimental, not medically validated. "
      "Annotate a reference slice, Ctrl-select the objects, choose STCN and increasing/decreasing slice index, then Track selected. "

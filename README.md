@@ -34,6 +34,7 @@ save annotations in Labelme-compatible JSON files.
 - Duplicate-safe CSV review export
 - Optional video tracking in the same GUI, with sequence-safe outputs and review
 - Optional native-grid 3D NIfTI slice annotation and aligned segmentation export
+- Optional regular-grid CT/MRI DICOM slice-folder import with series selection
 - CUDA, Apple MPS, and CPU device selection
 
 ## Quick start
@@ -684,7 +685,8 @@ Never-saved slices are zero-filled but explicitly listed as **unannotated**, not
 confirmed background; the GUI asks before such an export. Saving a deliberately
 empty slice after deleting its annotations records a reviewed-empty slice.
 This is manual completion tracking, not an annotation-review decision.
-No native volume review, DICOM import, 4D/vector data or 3D rendering is included.
+No native volume review, 4D/vector data or 3D rendering is included.
+For classic CT/MRI DICOM slice folders, use the [DICOM importer](#dicom-ctmri-folders-optional).
 `--volume` cannot be combined with `--review` or
 `--video`. Optional dependencies are not needed for ordinary image/video work.
 Use the [synthetic-data checklist](docs/MANUAL_TEST_NIFTI.md) before real datasets.
@@ -727,6 +729,61 @@ input display range. The export sidecar includes this per-slice provenance as
 `slice_tracking_provenance`. These records do not certify accuracy or mark a
 slice reviewed. Try the [propagation checklist](docs/MANUAL_TEST_VOLUME_PROPAGATION.md)
 on synthetic data first.
+
+## DICOM CT/MRI folders (optional)
+
+For a folder of **classic, uncompressed single-frame CT/MR slices**, install
+the optional reader in your activated environment (Python 3.10+):
+
+```bash
+python -m pip install -r requirements-dicom.txt
+python annotator.py --dicom-directory path/to/dicom-folder --app_resolution 1000,1600 --model_type vit_b --keep_input_size True --max_size 720
+```
+
+Or launch normally and click **Open DICOM**. The folder and its subfolders are
+searched for DICOM files, including extensionless Part-10 files. When multiple
+CT/MR series exist, choose one by modality, series number/description, slice
+count and UID. A single series opens directly. `--dicom-series UID` can preselect
+one series when used with `--dicom-directory`; DICOM startup cannot mix with
+`--volume`, `--video` or `--review`.
+
+Slices are ordered by **Image Position/Orientation Patient**, not filenames or
+InstanceNumber. The importer checks scan identities, dimensions, pixel spacing,
+parallel planes and a regular spatial grid (up to 0.001 mm position rounding).
+Duplicate instances/positions, mixed echoes/time points and irregular grids are
+refused. At least two spatial slices are required. Constant gantry tilt is
+preserved in the affine/sform; varying tilt is not resampled or guessed.
+DICOM LPS coordinates are converted to NIfTI RAS coordinates without rotating
+or resampling the pixel arrays. The canvas shows the native pixel grid with
+square display pixels; physical spacing is preserved in export, not used to
+reformat the preview's aspect ratio.
+
+Per-slice **modality LUT or rescale slope/intercept** is applied before display.
+Window centre/width uses those rescaled units (often HU for CT), starting from
+the global intensity range rather than the file's presentation-window presets.
+MONOCHROME1 reverses the preview polarity without reversing physical intensities.
+Embedded VOI/presentation LUTs and vendor-specific real-world scaling are not
+implemented. Original DICOM files are never rewritten. Import uses a temporary
+float64 volume and preview files; allow roughly eight bytes per voxel plus
+preview space on your temporary drive. Existing volume-size limits apply.
+
+Use the same Save Directory, SAM/manual annotation, class mapping, PgUp/PgDown/J,
+Undo, window controls and **experimental STCN slice propagation** as NIfTI mode.
+Outputs are isolated by selected-series content identity and reopen when the
+same series/output folder is selected. Changes to the source DICOM folder require
+reopening before windowing, propagation or export; ordinary JSON/NIfTI outputs
+are not treated as source slices.
+
+**Export NIfTI mask** keeps the established class-ID-plus-one mapping and native
+geometry. Each editable JSON records its series and SOP instance UID; the export
+sidecar lists SOP instances in slice order. Patient demographics and private
+headers are not copied into these outputs. This does not anonymize the originals.
+There is **no DICOM SEG or RTSTRUCT export**, native volume review, enhanced or
+multiframe import, Siemens mosaic support, or compressed-pixel decoding in this
+first importer. Decompress a copy through your DICOM software if needed.
+Try the [synthetic CT/MR checklist](docs/MANUAL_TEST_DICOM.md) first. The geometry
+and modality conventions follow [NiBabel's DICOM geometry reference](https://nipy.org/nibabel/dicom/dicom_orientation.html)
+and [pydicom's modality transform](https://pydicom.github.io/pydicom/stable/reference/generated/pydicom.pixels.apply_modality_lut.html).
 
 ## Video annotation
 
