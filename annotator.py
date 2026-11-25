@@ -66,7 +66,10 @@ class MainWindow(VolumeWindowMixin, VideoWindowMixin, QMainWindow):
     FIT_WINDOW, FIT_WIDTH, MANUAL_ZOOM = 0, 1, 2
 
     def __init__(self, parent=None, global_w=1000, global_h=1800, model_type='vit_b', keep_input_size=True, max_size=1080, legacy_label_indices=False, max_size_stcn=600):
+        configure_windows_app_id()
+        configure_qt_application(QApplication.instance())
         super(MainWindow, self).__init__(parent)
+        self.setWindowIcon(QApplication.instance().windowIcon())
         self.resize(global_w, global_h)
         self.model_type = model_type
         self.keep_input_size = keep_input_size
