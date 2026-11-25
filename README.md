@@ -1017,6 +1017,20 @@ The tests cover review path validation, resumable SQLite storage, JSON and
 geometry comparison, raster-mask comparison, provenance, duplicate-safe CSV
 export, application icon assets, and the complete review audit workflow.
 
+## Application logo
+
+The editable artwork is `assets/SAMAnnLogo.svg`. Export it from Inkscape to
+`assets/SAMAnnLogo.png` to preserve the intended colours, then run:
+
+```bash
+python scripts/build_app_icon.py
+```
+
+This creates `assets/app_icon.png` and the multi-size Windows `assets/app_icon.ico`.
+The PNG export is centred on a transparent square without stretching; images that
+fit within 1024 pixels keep their original pixels. Restart the annotator after
+replacing the icons.
+
 ## Citation
 
 If you use Segment Anything Annotator & Reviewer in your research, please cite
